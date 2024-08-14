@@ -1,4 +1,5 @@
-FROM --platform=linux/amd64 amd64/ubuntu:24.10
+FROM amd64/ubuntu:24.10
+#--platform=linux/amd64 
 
 ARG DEBIAN_FRONTEND=noninteractive
 
