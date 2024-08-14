@@ -1,7 +1,7 @@
 {
-	"name": "poetry3-poetry-pyenv",
+	"name": "ml_pipelines_env",
 	"build": {
-		"dockerfile": "Dockerfile"
+		"dockerfile": "./Dockerfile"
 	},
 
 	// 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
