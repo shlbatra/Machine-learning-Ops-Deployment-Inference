@@ -1,0 +1,68 @@
+# PIPELINE DEFINITION
+# Name: gputrainingfunc
+# Outputs:
+#    Output: bool
+components:
+  comp-gputrainingfunc:
+    executorLabel: exec-gputrainingfunc
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: BOOLEAN
+deploymentSpec:
+  executors:
+    exec-gputrainingfunc:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - gpuTrainingFunc
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef gpuTrainingFunc() -> bool:\n  import logging\n  import tensorflow\
+          \ as tf\n\n  gpus = tf.config.list_physical_devices('GPU')\n\n  for gpu\
+          \ in gpus:\n    logging.info('Name: {} Type: {}'.format(gpu.name, gpu.device_type))\n\
+          \n  return True\n\n"
+        image: gcr.io/deeplearning-platform-release/tf2-gpu.2-6
+pipelineInfo:
+  name: gputrainingfunc
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: gputrainingfunc
+    tasks:
+      gputrainingfunc:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-gputrainingfunc
+        taskInfo:
+          name: gputrainingfunc
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: BOOLEAN
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0
