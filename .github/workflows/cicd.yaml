@@ -1,0 +1,11 @@
+name: CICD
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  packages: read
+  statuses: write
+  id-token: write

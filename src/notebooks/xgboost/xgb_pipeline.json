@@ -13,7 +13,7 @@
             "inputs": {
               "artifacts": {
                 "model": {
-                  "componentInputArtifact": "pipelinechannel--train-model-model_artifact"
+                  "componentInputArtifact": "pipelinechannel--train-model-model"
                 }
               },
               "parameters": {
@@ -37,7 +37,7 @@
       },
       "inputDefinitions": {
         "artifacts": {
-          "pipelinechannel--train-model-model_artifact": {
+          "pipelinechannel--train-model-model": {
             "artifactType": {
               "schemaTitle": "system.Model",
               "schemaVersion": "0.0.1"
@@ -145,7 +145,7 @@
       },
       "outputDefinitions": {
         "artifacts": {
-          "model_artifact": {
+          "model": {
             "artifactType": {
               "schemaTitle": "system.Model",
               "schemaVersion": "0.0.1"
@@ -172,7 +172,7 @@
             "sh",
             "-ec",
             "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
-            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef deploy(\n    model: Input[Model],\n    project: str,\n    region: str,):\n\n  import logging\n  from google.cloud import aiplatform\n  aiplatform.init(project=project, location=region)\n\n  logging.basicConfig(level=logging.DEBUG)\n  logging.debug(model)\n\n  print(model)\n  print(model.uri)\n\n  import os\n  path,file = os.path.split(model.uri)\n\n  import datetime\n\n  # datetime.datetime.now().strftime('%Y%m%d%H%M%S')\n  # serving image https://cloud.google.com/vertex-ai/docs/predictions/pre-built-containers#xgboost\n  deployed_model = aiplatform.Model.upload(\n        display_name=\"xgboost-pipeline\",\n        artifact_uri = path,\n        serving_container_image_uri=\"us-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.1-4:latest\"\n  )\n\n"
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef deploy(\n    model: Input[Model],\n    project: str,\n    region: str,):\n\n  import logging\n  from google.cloud import aiplatform\n  aiplatform.init(project=project, location=region)\n\n  logging.basicConfig(level=logging.DEBUG)\n  logging.debug(model)\n\n  print(model)\n  print(model.uri)\n\n  import os\n  path,file = os.path.split(model.uri)\n  print(path)\n  logging.info(path)\n  import datetime\n\n  # datetime.datetime.now().strftime('%Y%m%d%H%M%S')\n  # serving image https://cloud.google.com/vertex-ai/docs/predictions/pre-built-containers#xgboost\n  deployed_model = aiplatform.Model.upload(\n        display_name=\"xgboost-pipeline\",\n        artifact_uri = path,\n        serving_container_image_uri=\"us-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.1-4:latest\"\n  )\n\n"
           ],
           "image": "python:3.9"
         }
@@ -192,7 +192,7 @@
             "sh",
             "-ec",
             "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
-            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef eval_model(\n    test_set: Input[Dataset],\n    xgb_model: Input[Model],\n    metrics: Output[ClassificationMetrics],\n    smetrics: Output[Metrics]\n) -> NamedTuple(\"Outputs\", [(\"deploy\", str)]):\n    from xgboost import XGBClassifier\n    import pandas as pd\n    import numpy as np\n\n    data = pd.read_csv(test_set.path)\n    model = XGBClassifier()\n    model.load_model(xgb_model.path)\n\n    score = model.score(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    from sklearn.metrics import roc_curve\n    y_scores =  model.predict_proba(data.drop(columns=[\"target\"]))[:, 1]\n    fpr, tpr, thresholds = roc_curve(\n         y_true=data.target.to_numpy(), y_score=y_scores, pos_label=True\n    )\n    # Create a mask for non-Infinity thresholds\n    valid_mask = ~np.isinf(thresholds)\n\n    # Apply the mask to filter out Infinity values\n    fpr = fpr[valid_mask]\n    tpr = tpr[valid_mask]\n    thresholds = thresholds[valid_mask]\n\n    metrics.log_roc_curve(fpr.tolist(), tpr.tolist(), thresholds.tolist())\n\n    from sklearn.metrics import confusion_matrix\n    y_pred = model.predict(data.drop(columns=[\"target\"]))\n\n    metrics.log_confusion_matrix(\n       [\"False\", \"True\"],\n       confusion_matrix(\n           data.target, y_pred\n       ).tolist()\n    )\n\n    xgb_model.metadata[\"test_score\"] = float(score)\n    smetrics.log_metric(\"score\", float(score))\n\n\n    deploy = \"true\"\n    #compare threshold or to previous\n\n    return (deploy,)\n\n"
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef eval_model(\n    test_set: Input[Dataset],\n    xgb_model: Input[Model],\n    metrics: Output[ClassificationMetrics],\n    smetrics: Output[Metrics]\n) -> NamedTuple(\"Outputs\", [(\"deploy\", str)]):\n    from xgboost import XGBClassifier\n    import pandas as pd\n    import numpy as np\n    import joblib\n\n    data = pd.read_csv(test_set.path)\n    #model = XGBClassifier()\n    #model.load_model(xgb_model.path)\n    model = joblib.load(xgb_model.path+'.joblib')\n    score = model.score(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    from sklearn.metrics import roc_curve\n    y_scores =  model.predict_proba(data.drop(columns=[\"target\"]))[:, 1]\n    fpr, tpr, thresholds = roc_curve(\n         y_true=data.target.to_numpy(), y_score=y_scores, pos_label=True\n    )\n    # Create a mask for non-Infinity thresholds\n    valid_mask = ~np.isinf(thresholds)\n\n    # Apply the mask to filter out Infinity values\n    fpr = fpr[valid_mask]\n    tpr = tpr[valid_mask]\n    thresholds = thresholds[valid_mask]\n\n    metrics.log_roc_curve(fpr.tolist(), tpr.tolist(), thresholds.tolist())\n\n    from sklearn.metrics import confusion_matrix\n    y_pred = model.predict(data.drop(columns=[\"target\"]))\n\n    metrics.log_confusion_matrix(\n       [\"False\", \"True\"],\n       confusion_matrix(\n           data.target, y_pred\n       ).tolist()\n    )\n\n    xgb_model.metadata[\"test_score\"] = float(score)\n    smetrics.log_metric(\"score\", float(score))\n\n\n    deploy = \"true\"\n    #compare threshold or to previous\n\n    return (deploy,)\n\n"
           ],
           "image": "python:3.9"
         }
@@ -232,7 +232,7 @@
             "sh",
             "-ec",
             "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
-            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef train_model(\n    dataset: Input[Dataset],\n    model_artifact: Output[Model]\n):\n\n    from xgboost import XGBClassifier\n    import pandas as pd\n\n    data = pd.read_csv(dataset.path)\n\n    model = XGBClassifier(\n        objective=\"binary:logistic\"\n    )\n    model.fit(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    score = model.score(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    model_artifact.metadata[\"train_score\"] = float(score)\n    model_artifact.metadata[\"framework\"] = \"XGBoost\"\n\n    print(model_artifact.path)\n\n    model.save_model(model_artifact.path)\n\n"
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef train_model(\n    dataset: Input[Dataset],\n    model: Output[Model]\n):\n\n    from xgboost import XGBClassifier\n    import pandas as pd\n    import joblib\n    import logging\n\n    logging.basicConfig(level=logging.DEBUG)\n\n    data = pd.read_csv(dataset.path)\n\n    xgb_model = XGBClassifier(\n        objective=\"binary:logistic\"\n    )\n    xgb_model.fit(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    score = xgb_model.score(\n        data.drop(columns=[\"target\"]),\n        data.target,\n    )\n\n    model.metadata[\"train_score\"] = float(score)\n    model.metadata[\"framework\"] = \"XGBoost\"\n\n    print(model.path)\n\n    #model.save_model(model_artifact.path)\n    joblib.dump(xgb_model, model.path+'.joblib')\n\n"
           ],
           "image": "python:3.9"
         }
@@ -275,9 +275,9 @@
           ],
           "inputs": {
             "artifacts": {
-              "pipelinechannel--train-model-model_artifact": {
+              "pipelinechannel--train-model-model": {
                 "taskOutputArtifact": {
-                  "outputArtifactKey": "model_artifact",
+                  "outputArtifactKey": "model",
                   "producerTask": "train-model"
                 }
               }
@@ -319,7 +319,7 @@
               },
               "xgb_model": {
                 "taskOutputArtifact": {
-                  "outputArtifactKey": "model_artifact",
+                  "outputArtifactKey": "model",
                   "producerTask": "train-model"
                 }
               }
