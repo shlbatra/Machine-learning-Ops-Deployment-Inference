@@ -207,3 +207,13 @@ class ValidatePreprocessingConfig(BaseModel):
     join_column: str
     columns: List[str]
     project_id: str
+
+    
+def get_base_pipeline_config(pipeline_name, pipeline_filename) -> config.PipelineConfig:
+    return config.PipelineConfig(
+        project_id="shopify-buyer-trust",
+        bucket_name="shopify-buyer-trust",
+        pipeline_service_account="sbwi-vai-shop-promise-pipel@shopify-buyer-trust.iam.gserviceaccount.com",
+        pipeline_name=pipeline_name,
+        pipeline_filename=pipeline_filename,
+    )
