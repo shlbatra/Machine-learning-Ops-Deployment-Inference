@@ -1,9 +1,11 @@
 from kfp.dsl import Dataset, Output, component
 
-@component(
+@component(base_image="python:3.9", 
     packages_to_install=[
-        "pandas",
-        "google-cloud-bigquery",
+        "pandas==2.0.0",
+        "scikit-learn==1.5.1",
+        "google-cloud-bigquery==2.34.3",
+        "numpy==1.23.0"
     ],
 )
 def load_data(

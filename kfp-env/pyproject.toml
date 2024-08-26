@@ -29,6 +29,7 @@ click = "^8.1.7"
 h11 = "^0.14.0"
 pathspec = "^0.12.1"
 xgboost = "^2.1.1"
+google-cloud = "^0.34.0"
 
 [tool.poetry.group.dev.dependencies]
 kfp = "2.7.0"
