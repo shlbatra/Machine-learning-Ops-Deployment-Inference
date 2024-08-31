@@ -6,9 +6,10 @@ import google.cloud.aiplatform as aip
 BUCKET = "gs://ml-pipelines-kfp"
 PIPELINE_NAME = "pipeline-iris"
 PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-east1"
+REGION = "us-central1"
 PROJECT_ID = "ml-pipelines-project-433602"
 SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
+MODEL_NAME = "Iris-Classifier-XGBoost"
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
@@ -18,6 +19,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     from src.iris_xgboost.pipelines.components.evaluation import choose_best_model
     from src.iris_xgboost.pipelines.components.models import decision_tree, random_forest
     from src.iris_xgboost.pipelines.components.register import upload_model
+    from src.iris_xgboost.pipelines.components.deploy import deploy_model
 
     # Start pipeline definition
     data_op = load_data(
@@ -38,11 +40,20 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         random_forest_model=rf_op.outputs["output_model"],
     ).set_display_name("Select best Model")
 
-    upload_model(
+    upload_model_op = upload_model(
         project_id=project_id,
         location=location,
         model=choose_model_op.outputs["best_model"],
+        model_name=MODEL_NAME
     ).set_display_name("Register Model")
+
+    deploy_model_op = deploy_model(
+        project_id=project_id,
+        location=location,
+        model=choose_model_op.outputs["best_model"],
+        endpoint_name="iris-model-endpoint",
+        model_name=MODEL_NAME
+    ).set_display_name("Deploy Model").after(upload_model_op)
 
 
 if __name__ == "__main__":

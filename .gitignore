@@ -1,2 +1,10 @@
 .env
-/___pycache__/
+*/___pycache__/*
+__pycache__/
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.eggs/

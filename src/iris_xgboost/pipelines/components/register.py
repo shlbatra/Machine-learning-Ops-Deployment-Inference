@@ -7,6 +7,7 @@ def upload_model(
     project_id: str,
     location: str,
     model: Input[Model],
+    model_name: str
 ):
     from google.cloud import aiplatform
 
@@ -14,10 +15,6 @@ def upload_model(
 
     aiplatform.Model.upload_scikit_learn_model_file(
         model_file_path=model.path,
-        display_name="Iris-Classifier",
+        display_name=model_name,
         project=project_id,
     )
-
-    aiplatform.Model.export_model(
-    export_format_id=""
-)
