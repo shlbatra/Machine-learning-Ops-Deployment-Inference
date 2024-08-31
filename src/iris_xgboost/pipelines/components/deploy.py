@@ -22,7 +22,9 @@ def deploy_model(
     client.list_models(request=request)
     parent_models = list(client.list_models(request=request))
     parent_model=parent_models[0] if parent_models else None
-    parent_model.name.split('/')[-1]
+    model_name = parent_model.name.split('/')[-1]
+
+    model = Model(model_name)
 
     endpoint = aiplatform.Endpoint.create(display_name=endpoint_name) # iris-endpt 
 
