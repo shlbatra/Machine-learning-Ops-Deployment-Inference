@@ -141,8 +141,9 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'joblib'\
-          \ 'scikit-learn' && \"$0\" \"$@\"\n"
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
+          \n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -182,8 +183,9 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'joblib'\
-          \ 'scikit-learn' && \"$0\" \"$@\"\n"
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
+          \n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -206,7 +208,7 @@ deploymentSpec:
           \    model.fit(X_train, y_train)\n    pred = model.predict(X_test)\n   \
           \ acc = accuracy_score(y_test, pred)\n\n    metrics.log_metric(\"accuracy\"\
           , (acc))\n\n    joblib.dump(model, output_model.path)\n\n"
-        image: python:3.9
+        image: python:3.10
     exec-deploy-model:
       container:
         args:
@@ -222,7 +224,8 @@ deploymentSpec:
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
-          \ 'pandas' 'joblib' 'numpy' && \"$0\" \"$@\"\n"
+          \ 'pandas==2.0.0' 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2'\
+          \ && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -243,10 +246,11 @@ deploymentSpec:
           ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    client.list_models(request=request)\n\
           \    parent_models = list(client.list_models(request=request))\n    parent_model=parent_models[0]\
           \ if parent_models else None\n    model_name = parent_model.name.split('/')[-1]\n\
-          \n    model = Model(model_name)\n\n    endpoint = aiplatform.Endpoint.create(display_name=endpoint_name)\
-          \ # iris-endpt \n\n    model.deploy(\n        endpoint=endpoint,\n     \
-          \   machine_type=\"n1-standard-2\"  # Specify the machine type\n    )\n\n\
-          \    print(f\"Model deployed to endpoint {endpoint.display_name}\")\n\n"
+          \n    model = aiplatform.Model(model_name)\n    print(type(model))\n   \
+          \ endpoint = aiplatform.Endpoint.create(display_name=endpoint_name) # iris-endpt\
+          \ \n\n    model.deploy(\n        endpoint=endpoint,\n        machine_type=\"\
+          n1-standard-2\"  # Specify the machine type\n    )\n\n    print(f\"Model\
+          \ deployed to endpoint {endpoint.display_name}\")\n\n"
         image: python:3.9
     exec-load-data:
       container:
@@ -263,7 +267,7 @@ deploymentSpec:
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'google-cloud-bigquery==2.34.3' 'numpy==1.23.0'\
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'google-cloud-bigquery==2.34.3'\
           \ && \"$0\" \"$@\"\n"
         - sh
         - -ec
@@ -293,7 +297,7 @@ deploymentSpec:
           \    X_train[\"Species\"] = y_train\n    X_test[\"Species\"] = y_test\n\n\
           \    X_train.to_csv(f\"{train_dataset.path}\", index=False)\n    X_test.to_csv(f\"\
           {test_dataset.path}\", index=False)\n\n"
-        image: python:3.9
+        image: python:3.10
     exec-random-forest:
       container:
         args:
@@ -308,8 +312,9 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'joblib'\
-          \ 'scikit-learn' && \"$0\" \"$@\"\n"
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
+          \n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)

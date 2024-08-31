@@ -1,7 +1,11 @@
 from kfp.dsl import Input, Model, component
 
 @component(base_image="python:3.9", 
-    packages_to_install=["google-cloud-aiplatform", "pandas", "joblib", "numpy"],
+    packages_to_install=["google-cloud-aiplatform",
+        "pandas==2.0.0",
+        "scikit-learn==1.5.1",
+        "numpy==1.23.0",
+        "joblib==1.4.2"]
 )
 def deploy_model(
     project_id: str,
@@ -11,6 +15,15 @@ def deploy_model(
     model_name: str
 ):
     from google.cloud import aiplatform, aiplatform_v1
+    import pandas
+    import sklearn
+    import numpy
+    import joblib
+
+    print(pandas.__version__)
+    print(sklearn.__version__)
+    print(numpy.__version__)
+    print(joblib.__version__)
 
     aiplatform.init(project=project_id, location=location)
 
@@ -24,10 +37,11 @@ def deploy_model(
     parent_model=parent_models[0] if parent_models else None
     model_name = parent_model.name.split('/')[-1]
 
-    model = Model(model_name)
-
+    model = aiplatform.Model(model_name)
+    print(type(model))
+    print(model)
     endpoint = aiplatform.Endpoint.create(display_name=endpoint_name) # iris-endpt 
-
+    print(endpoint)
     model.deploy(
         endpoint=endpoint,
         machine_type="n1-standard-2"  # Specify the machine type

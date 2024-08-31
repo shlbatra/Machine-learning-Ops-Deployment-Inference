@@ -1,10 +1,11 @@
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
 
-@component(base_image="python:3.9", 
+@component(base_image="python:3.10", 
     packages_to_install=[
-        "pandas",
-        "joblib",
-        "scikit-learn"
+        "pandas==2.0.0",
+        "scikit-learn==1.5.1",
+        "numpy==1.23.0",
+        "joblib==1.4.2",
     ],
 )
 def decision_tree(
@@ -39,9 +40,10 @@ def decision_tree(
 
 @component(base_image="python:3.9", 
     packages_to_install=[
-        "pandas",
-        "joblib",
-        "scikit-learn"
+        "pandas==2.0.0",
+        "scikit-learn==1.5.1",
+        "numpy==1.23.0",
+        "joblib==1.4.2",
     ],
 )
 def random_forest(
