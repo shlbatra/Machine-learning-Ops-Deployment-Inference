@@ -38,7 +38,7 @@ def decision_tree(
     joblib.dump(model, output_model.path)
 
 
-@component(base_image="python:3.9", 
+@component(base_image="python:3.10", 
     packages_to_install=[
         "pandas==2.0.0",
         "scikit-learn==1.5.1",

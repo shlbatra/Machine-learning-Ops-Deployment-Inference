@@ -6,10 +6,10 @@ import google.cloud.aiplatform as aip
 BUCKET = "gs://ml-pipelines-kfp"
 PIPELINE_NAME = "pipeline-iris"
 PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-central1"
+REGION = "us-east1"
 PROJECT_ID = "ml-pipelines-project-433602"
 SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
-MODEL_NAME = "Iris-Classifier-XGBoost"
+MODEL_NAME = "Iris-Classifier-XGBoost-2"
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):

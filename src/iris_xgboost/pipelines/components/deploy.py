@@ -1,6 +1,6 @@
 from kfp.dsl import Input, Model, component
 
-@component(base_image="python:3.9", 
+@component(base_image="python:3.10", 
     packages_to_install=["google-cloud-aiplatform",
         "pandas==2.0.0",
         "scikit-learn==1.5.1",
@@ -34,6 +34,7 @@ def deploy_model(
     }
     client.list_models(request=request)
     parent_models = list(client.list_models(request=request))
+    print(parent_models)
     parent_model=parent_models[0] if parent_models else None
     model_name = parent_model.name.split('/')[-1]
 
@@ -42,9 +43,22 @@ def deploy_model(
     print(model)
     endpoint = aiplatform.Endpoint.create(display_name=endpoint_name) # iris-endpt 
     print(endpoint)
-    model.deploy(
-        endpoint=endpoint,
-        machine_type="n1-standard-2"  # Specify the machine type
+    endpoint.deploy(
+        model=model,
+        machine_type="n1-standard-2",  # Specify the machine type
+        traffic_percentage=100
     )
 
     print(f"Model deployed to endpoint {endpoint.display_name}")
+
+    print("Delete legacy deployments with no traffic assigned")
+    endpoint = aiplatform.Endpoint(endpoint_name=endpoint.resource_name)
+    traffic_split=endpoint.traffic_split
+    print(traffic_split)
+    for deployed_model in endpoint.list_models():
+        print(f"{deployed_model.id}@{deployed_model.model_version_id}")
+        if deployed_model.id not in traffic_split or traffic_split[deployed_model.id] == 0:
+            try:
+                endpoint.undeploy(deployed_model.id)
+            except Exception:
+                print(f"Failed to undeploy model {deployed_model.id}@{deployed_model.model_version_id}")

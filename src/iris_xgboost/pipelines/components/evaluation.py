@@ -1,7 +1,7 @@
 
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
 
-@component(base_image="python:3.9", 
+@component(base_image="python:3.10", 
     packages_to_install=[
         "pandas==2.0.0",
         "scikit-learn==1.5.1",
@@ -30,11 +30,15 @@ def choose_best_model(
 
     dt_accuracy = accuracy_score(test_data["Species"], dt_pred)
     rf_accuracy = accuracy_score(test_data["Species"], rf_pred)
+    print(dt_accuracy)
+    print(rf_accuracy)
 
     metrics.log_metric("Decision Tree (Accuracy)", (dt_accuracy))
     metrics.log_metric("Random Forest (Accuracy)", (rf_accuracy))
 
-    if dt_accuracy > rf_accuracy:
-        joblib.dump(dt, best_model.path)
-    else:
-        joblib.dump(rf, best_model.path)
+    joblib.dump(rf, best_model.path)
+
+    # if rf_accuracy >= dt_accuracy:
+    #     joblib.dump(dt, best_model.path)
+    # else:
+    #     joblib.dump(rf, best_model.path)
