@@ -332,12 +332,27 @@ deploymentSpec:
           ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    results\
           \ = list(client.list_models(request=request))\n    print(results)\n    if\
           \ results:\n        parent_model = results[0]\n    else:\n        parent_model\
-          \ = None\n\n    aiplatform.Model.upload(\n        artifact_uri=model.path.replace('/gcs/','gs://'),\n\
-          \        serving_container_image_uri=image_name,\n        parent_model=parent_model.name\
-          \ if parent_model else None,\n        display_name=model_name,\n       \
-          \ project=project_id,\n        explanation_parameters=explanation_parameters,\n\
-          \        explanation_metadata=explanation_metadata,\n    )\n\n    # aiplatform.Model.upload_scikit_learn_model_file(\n\
-          \    #     model_file_path=model.path,\n    #     parent_model=parent_model.name\
+          \ = None\n\n    predict_schemata=None\n\n    container_spec = aiplatform_v1.types.model.ModelContainerSpec(\n\
+          \        image_uri=image_name,\n        #env=[{\"name\": key, \"value\"\
+          : value] for key, value in env_vars.items()],\n        #command=command,\n\
+          \        args=[\"uvicorn\", \"src.iris_xgboost.server:app\", \"--host\"\
+          , \"0.0.0.0\", \"--port\", \"8080\"],\n        ports=[{\"container_port\"\
+          : 8080}],\n        predict_route=\"/predict\",\n        health_route=\"\
+          /health/live\"\n    )\n\n    new_model = aiplatform_v1.Model(\n        \
+          \        display_name=model_name,\n                container_spec=container_spec,\n\
+          \                artifact_uri=model.path.replace('/gcs/','gs://'),\n   \
+          \             # predict_schemata = predict_schemata\n    )\n\n\n    result\
+          \ = client.upload_model(\n                    request = dict(\n        \
+          \                parent= f\"projects/{project_id}/locations/{location}\"\
+          ,\n                        parent_model= parent_model.name if parent_model\
+          \ else None,\n                        model=new_model,\n               \
+          \     )\n            ).result()\n\n    # aiplatform.Model.upload(\n    #\
+          \     artifact_uri=model.path.replace('/gcs/','gs://'),\n    #     serving_container_image_uri=image_name,\n\
+          \    #     parent_model=parent_model.name if parent_model else None,\n \
+          \   #     display_name=model_name,\n    #     project=project_id,\n    #\
+          \     explanation_parameters=explanation_parameters,\n    #     explanation_metadata=explanation_metadata,\n\
+          \    # )\n\n    # aiplatform.Model.upload_scikit_learn_model_file(\n   \
+          \ #     model_file_path=model.path,\n    #     parent_model=parent_model.name\
           \ if parent_model else None,\n    #     display_name=model_name,\n    #\
           \     project=project_id,\n    #     explanation_parameters=explanation_parameters,\n\
           \    #     explanation_metadata=explanation_metadata,\n    # )\n\n"
