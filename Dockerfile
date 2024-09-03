@@ -19,14 +19,8 @@ WORKDIR /app
 # Copy the local script into the container
 COPY . /app
 
-# Change directory 
-RUN cd kfp-env
-
-# Install dependencies defined in pyproject.toml
-RUN poetry install --no-root
-
-# Change directory 
-RUN cd..
+# Setup poetry environment
+RUN cd kfp-env && poetry install --no-root && cd ..
 
 # Install any needed packages specified in requirements.txt
 RUN pip install -e . --no-deps
