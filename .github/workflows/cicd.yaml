@@ -1,11 +1,54 @@
-name: CICD
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
 
-permissions:
-  contents: read
-  packages: read
-  statuses: write
-  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      BUILD_BRANCH: ${{ github.ref_name }}
+      BUILD_COMMIT: ${{ github.sha }}
+      GCR_PROJECT_ID: ml-pipelines-project-433602
+      GCR_IMAGE_NAME_XGBOOST: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Load .env file
+        run: |
+          set -a
+          [ -f .env ] && . .env
+          set +a
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
+
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker
+
+      - name: Build ml_pipeline_kfp_image
+        run: |
+          docker build \
+            --build-arg BUILD_BRANCH=${{ env.BUILD_BRANCH }} \
+            --build-arg BUILD_COMMIT=${{ env.BUILD_COMMIT }} \
+            --tag ${{ env.GCR_IMAGE_NAME_XGBOOST }}:${{ github.ref_name }} \
+            --file Dockerfile \
+            --timeout 10m .
+
+      - name: Push ml_pipeline_kfp_image
+        run: |
+          docker push ${{ env.GCR_IMAGE_NAME_XGBOOST }}:${{ github.ref_name }}
