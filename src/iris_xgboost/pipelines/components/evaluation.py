@@ -1,4 +1,3 @@
-
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
 
 @component(base_image="python:3.10", 
@@ -36,9 +35,7 @@ def choose_best_model(
     metrics.log_metric("Decision Tree (Accuracy)", (dt_accuracy))
     metrics.log_metric("Random Forest (Accuracy)", (rf_accuracy))
 
-    joblib.dump(rf, best_model.path)
-
-    # if rf_accuracy >= dt_accuracy:
-    #     joblib.dump(dt, best_model.path)
-    # else:
-    #     joblib.dump(rf, best_model.path)
+    if rf_accuracy >= dt_accuracy:
+        joblib.dump(dt, best_model.path)
+    else:
+        joblib.dump(rf, best_model.path)

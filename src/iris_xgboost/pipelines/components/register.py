@@ -40,13 +40,12 @@ def upload_model(
         parent_model = results[0]
     else:
         parent_model = None
-    print(parent_model)
-    print(parent_model.name)
+
     aiplatform.Model.upload_scikit_learn_model_file(
         model_file_path=model.path,
         parent_model=parent_model.name if parent_model else None,
         display_name=model_name,
         project=project_id,
-        # explanation_parameters=explanation_parameters,
-        # explanation_metadata=explanation_metadata,
+        explanation_parameters=explanation_parameters,
+        explanation_metadata=explanation_metadata,
     )

@@ -44,7 +44,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         project_id=project_id,
         location=location,
         model=choose_model_op.outputs["best_model"],
-        model_name=MODEL_NAME
+        model_name=MODEL_NAME,
     ).set_display_name("Register Model")
 
     deploy_model_op = deploy_model(
