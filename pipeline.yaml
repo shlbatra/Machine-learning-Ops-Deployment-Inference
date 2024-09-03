@@ -54,23 +54,6 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
-  comp-deploy-model:
-    executorLabel: exec-deploy-model
-    inputDefinitions:
-      artifacts:
-        model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-      parameters:
-        endpoint_name:
-          parameterType: STRING
-        location:
-          parameterType: STRING
-        model_name:
-          parameterType: STRING
-        project_id:
-          parameterType: STRING
   comp-load-data:
     executorLabel: exec-load-data
     inputDefinitions:
@@ -118,6 +101,8 @@ components:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
       parameters:
+        image_name:
+          parameterType: STRING
         location:
           parameterType: STRING
         model_name:
@@ -142,8 +127,8 @@ deploymentSpec:
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
-          \n"
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' 'fsspec==2024.6.1'\
+          \ 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -158,17 +143,23 @@ deploymentSpec:
           \ *\n\ndef choose_best_model(\n    test_dataset: Input[Dataset],\n    decision_tree_model:\
           \ Input[Model],\n    random_forest_model: Input[Model],\n    metrics: Output[Metrics],\n\
           \    best_model: Output[Model],\n):\n    import joblib\n    import pandas\
-          \ as pd\n    from sklearn.metrics import accuracy_score\n\n    test_data\
-          \ = pd.read_csv(test_dataset.path)\n\n    dt = joblib.load(decision_tree_model.path)\n\
-          \    rf = joblib.load(random_forest_model.path)\n\n    dt_pred = dt.predict(test_data.drop(\"\
-          Species\", axis=1))\n    rf_pred = rf.predict(test_data.drop(\"Species\"\
-          , axis=1))\n\n    dt_accuracy = accuracy_score(test_data[\"Species\"], dt_pred)\n\
-          \    rf_accuracy = accuracy_score(test_data[\"Species\"], rf_pred)\n   \
-          \ print(dt_accuracy)\n    print(rf_accuracy)\n\n    metrics.log_metric(\"\
-          Decision Tree (Accuracy)\", (dt_accuracy))\n    metrics.log_metric(\"Random\
-          \ Forest (Accuracy)\", (rf_accuracy))\n\n    if rf_accuracy >= dt_accuracy:\n\
-          \        joblib.dump(dt, best_model.path)\n    else:\n        joblib.dump(rf,\
-          \ best_model.path)\n\n"
+          \ as pd\n    from sklearn.metrics import accuracy_score\n    import os,\
+          \ pickle, fsspec, gcsfs\n\n    test_data = pd.read_csv(test_dataset.path)\n\
+          \n    dt = joblib.load(decision_tree_model.path)\n    rf = joblib.load(random_forest_model.path)\n\
+          \n    dt_pred = dt.predict(test_data.drop(\"Species\", axis=1))\n    rf_pred\
+          \ = rf.predict(test_data.drop(\"Species\", axis=1))\n\n    dt_accuracy =\
+          \ accuracy_score(test_data[\"Species\"], dt_pred)\n    rf_accuracy = accuracy_score(test_data[\"\
+          Species\"], rf_pred)\n    print(dt_accuracy)\n    print(rf_accuracy)\n\n\
+          \    metrics.log_metric(\"Decision Tree (Accuracy)\", (dt_accuracy))\n \
+          \   metrics.log_metric(\"Random Forest (Accuracy)\", (rf_accuracy))\n\n\
+          \    filepath=best_model.path.replace(\"/gcs/\", \"gs://\")\n    filename='model.joblib'\n\
+          \    fs, _ = fsspec.core.url_to_fs(filepath)\n    fs.makedirs(filepath,\
+          \ exist_ok=True)\n    model_uri = os.path.join(filepath, filename)\n   \
+          \ with fs.open(model_uri, \"wb\") as f:\n        if rf_accuracy >= dt_accuracy:\n\
+          \           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)\n     \
+          \   else:\n           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)\n\
+          \n\n    # if rf_accuracy >= dt_accuracy:\n    #     joblib.dump(dt, best_model.path)\n\
+          \    # else:\n    #     joblib.dump(rf, best_model.path)\n\n"
         image: python:3.10
     exec-decision-tree:
       container:
@@ -209,60 +200,6 @@ deploymentSpec:
           \    model.fit(X_train, y_train)\n    pred = model.predict(X_test)\n   \
           \ acc = accuracy_score(y_test, pred)\n\n    metrics.log_metric(\"accuracy\"\
           , (acc))\n\n    joblib.dump(model, output_model.path)\n\n"
-        image: python:3.10
-    exec-deploy-model:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - deploy_model
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
-          \ 'pandas==2.0.0' 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2'\
-          \ && \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef deploy_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    endpoint_name: str,\n    model_name: str\n):\n\
-          \    from google.cloud import aiplatform, aiplatform_v1\n    import pandas\n\
-          \    import sklearn\n    import numpy\n    import joblib\n\n    print(pandas.__version__)\n\
-          \    print(sklearn.__version__)\n    print(numpy.__version__)\n    print(joblib.__version__)\n\
-          \n    aiplatform.init(project=project_id, location=location)\n\n    client\
-          \ = aiplatform_v1.ModelServiceClient(client_options={\"api_endpoint\": f\"\
-          {location}-aiplatform.googleapis.com\"})\n    request = {\n        \"parent\"\
-          : f\"projects/{project_id}/locations/{location}\",\n        \"filter\":\
-          \ f\"display_name={model_name}\"\n    }\n    client.list_models(request=request)\n\
-          \    parent_models = list(client.list_models(request=request))\n    print(parent_models)\n\
-          \    parent_model=parent_models[0] if parent_models else None\n    model_name\
-          \ = parent_model.name.split('/')[-1]\n\n    model = aiplatform.Model(model_name)\n\
-          \    print(type(model))\n    print(model)\n    endpoint = aiplatform.Endpoint.create(display_name=endpoint_name)\
-          \ # iris-endpt \n    print(endpoint)\n    endpoint.deploy(\n        model=model,\n\
-          \        machine_type=\"n1-standard-2\",  # Specify the machine type\n \
-          \       traffic_percentage=100\n    )\n\n    print(f\"Model deployed to\
-          \ endpoint {endpoint.display_name}\")\n\n    print(\"Delete legacy deployments\
-          \ with no traffic assigned\")\n    endpoint = aiplatform.Endpoint(endpoint_name=endpoint.resource_name)\n\
-          \    traffic_split=endpoint.traffic_split\n    print(traffic_split)\n  \
-          \  for deployed_model in endpoint.list_models():\n        print(f\"{deployed_model.id}@{deployed_model.model_version_id}\"\
-          )\n        if deployed_model.id not in traffic_split or traffic_split[deployed_model.id]\
-          \ == 0:\n            try:\n                endpoint.undeploy(deployed_model.id)\n\
-          \            except Exception:\n                print(f\"Failed to undeploy\
-          \ model {deployed_model.id}@{deployed_model.model_version_id}\")\n\n"
         image: python:3.10
     exec-load-data:
       container:
@@ -378,9 +315,9 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef upload_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    model_name: str\n):\n    from google.cloud import\
-          \ aiplatform, aiplatform_v1\n\n    aiplatform.init(project=project_id, location=location)\n\
-          \n    explanation_parameters =  aiplatform_v1.types.explanation.ExplanationParameters({\"\
+          \ model: Input[Model],\n    model_name: str,\n    image_name: str\n):\n\
+          \    from google.cloud import aiplatform, aiplatform_v1\n\n    aiplatform.init(project=project_id,\
+          \ location=location)\n\n    explanation_parameters =  aiplatform_v1.types.explanation.ExplanationParameters({\"\
           sampled_shapley_attribution\": {\"path_count\": 10}})\n    explanation_metadata\
           \ = aiplatform_v1.types.explanation_metadata.ExplanationMetadata(\n    \
           \                        inputs = {\n                                \"\
@@ -395,11 +332,15 @@ deploymentSpec:
           ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    results\
           \ = list(client.list_models(request=request))\n    print(results)\n    if\
           \ results:\n        parent_model = results[0]\n    else:\n        parent_model\
-          \ = None\n\n    aiplatform.Model.upload_scikit_learn_model_file(\n     \
-          \   model_file_path=model.path,\n        parent_model=parent_model.name\
+          \ = None\n\n    aiplatform.Model.upload(\n        artifact_uri=model.path.replace('/gcs/','gs://'),\n\
+          \        serving_container_image_uri=image_name,\n        parent_model=parent_model.name\
           \ if parent_model else None,\n        display_name=model_name,\n       \
           \ project=project_id,\n        explanation_parameters=explanation_parameters,\n\
-          \        explanation_metadata=explanation_metadata,\n    )\n\n"
+          \        explanation_metadata=explanation_metadata,\n    )\n\n    # aiplatform.Model.upload_scikit_learn_model_file(\n\
+          \    #     model_file_path=model.path,\n    #     parent_model=parent_model.name\
+          \ if parent_model else None,\n    #     display_name=model_name,\n    #\
+          \     project=project_id,\n    #     explanation_parameters=explanation_parameters,\n\
+          \    #     explanation_metadata=explanation_metadata,\n    # )\n\n"
         image: python:3.10
 pipelineInfo:
   name: pipeline-iris
@@ -460,33 +401,6 @@ root:
                 producerTask: load-data
         taskInfo:
           name: Decision Tree
-      deploy-model:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-deploy-model
-        dependentTasks:
-        - choose-best-model
-        - upload-model
-        inputs:
-          artifacts:
-            model:
-              taskOutputArtifact:
-                outputArtifactKey: best_model
-                producerTask: choose-best-model
-          parameters:
-            endpoint_name:
-              runtimeValue:
-                constant: iris-model-endpoint
-            location:
-              componentInputParameter: location
-            model_name:
-              runtimeValue:
-                constant: Iris-Classifier-XGBoost-2
-            project_id:
-              componentInputParameter: project_id
-        taskInfo:
-          name: Deploy Model
       load-data:
         cachingOptions:
           enableCache: true
@@ -531,6 +445,9 @@ root:
                 outputArtifactKey: best_model
                 producerTask: choose-best-model
           parameters:
+            image_name:
+              runtimeValue:
+                constant: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
             location:
               componentInputParameter: location
             model_name:

@@ -7,7 +7,8 @@ def upload_model(
     project_id: str,
     location: str,
     model: Input[Model],
-    model_name: str
+    model_name: str,
+    image_name: str
 ):
     from google.cloud import aiplatform, aiplatform_v1
 
@@ -41,11 +42,21 @@ def upload_model(
     else:
         parent_model = None
 
-    aiplatform.Model.upload_scikit_learn_model_file(
-        model_file_path=model.path,
+    aiplatform.Model.upload(
+        artifact_uri=model.path.replace('/gcs/','gs://'),
+        serving_container_image_uri=image_name,
         parent_model=parent_model.name if parent_model else None,
         display_name=model_name,
         project=project_id,
         explanation_parameters=explanation_parameters,
         explanation_metadata=explanation_metadata,
     )
+
+    # aiplatform.Model.upload_scikit_learn_model_file(
+    #     model_file_path=model.path,
+    #     parent_model=parent_model.name if parent_model else None,
+    #     display_name=model_name,
+    #     project=project_id,
+    #     explanation_parameters=explanation_parameters,
+    #     explanation_metadata=explanation_metadata,
+    # )

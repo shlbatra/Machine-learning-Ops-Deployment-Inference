@@ -11,6 +11,7 @@ PROJECT_ID = "ml-pipelines-project-433602"
 SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
 MODEL_NAME = "Iris-Classifier-XGBoost-2"
 
+
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     

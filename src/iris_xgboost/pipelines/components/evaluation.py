@@ -6,6 +6,8 @@ from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
         "scikit-learn==1.5.1",
         "numpy==1.23.0",
         "joblib==1.4.2",
+        "fsspec==2024.6.1",
+        "gcsfs==2024.6.1"
     ],
 )
 def choose_best_model(
@@ -18,6 +20,7 @@ def choose_best_model(
     import joblib
     import pandas as pd
     from sklearn.metrics import accuracy_score
+    import os, pickle, fsspec, gcsfs
 
     test_data = pd.read_csv(test_dataset.path)
 
@@ -35,7 +38,19 @@ def choose_best_model(
     metrics.log_metric("Decision Tree (Accuracy)", (dt_accuracy))
     metrics.log_metric("Random Forest (Accuracy)", (rf_accuracy))
 
-    if rf_accuracy >= dt_accuracy:
-        joblib.dump(dt, best_model.path)
-    else:
-        joblib.dump(rf, best_model.path)
+    filepath=best_model.path.replace("/gcs/", "gs://")
+    filename='model.joblib'
+    fs, _ = fsspec.core.url_to_fs(filepath)
+    fs.makedirs(filepath, exist_ok=True)
+    model_uri = os.path.join(filepath, filename)
+    with fs.open(model_uri, "wb") as f:
+        if rf_accuracy >= dt_accuracy:
+           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)
+        else:
+           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+
+    # if rf_accuracy >= dt_accuracy:
+    #     joblib.dump(dt, best_model.path)
+    # else:
+    #     joblib.dump(rf, best_model.path)

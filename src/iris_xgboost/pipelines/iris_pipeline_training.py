@@ -10,6 +10,7 @@ REGION = "us-east1"
 PROJECT_ID = "ml-pipelines-project-433602"
 SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
 MODEL_NAME = "Iris-Classifier-XGBoost-2"
+IMAGE_NAME = "gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main"
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
@@ -45,15 +46,16 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         location=location,
         model=choose_model_op.outputs["best_model"],
         model_name=MODEL_NAME,
+        image_name=IMAGE_NAME
     ).set_display_name("Register Model")
 
-    deploy_model_op = deploy_model(
-        project_id=project_id,
-        location=location,
-        model=choose_model_op.outputs["best_model"],
-        endpoint_name="iris-model-endpoint",
-        model_name=MODEL_NAME
-    ).set_display_name("Deploy Model").after(upload_model_op)
+    # deploy_model_op = deploy_model(
+    #     project_id=project_id,
+    #     location=location,
+    #     model=choose_model_op.outputs["best_model"],
+    #     endpoint_name="iris-model-endpoint",
+    #     model_name=MODEL_NAME
+    # ).set_display_name("Deploy Model").after(upload_model_op)
 
 
 if __name__ == "__main__":
