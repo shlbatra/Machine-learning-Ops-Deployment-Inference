@@ -1,0 +1,13 @@
+title: Instance
+type: object
+properties:
+  SepalLengthCm:
+    type: number
+  SepalWidthCm:
+    type: integer
+  PetalLengthCm:
+    type: number
+  PetalWidthCm:
+    type: number
+  Species:
+    type: integer

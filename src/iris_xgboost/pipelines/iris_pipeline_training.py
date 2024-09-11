@@ -1,22 +1,14 @@
 import sys
 import kfp
 import google.cloud.aiplatform as aip
-
-# Project settings
-BUCKET = "gs://ml-pipelines-kfp"
-PIPELINE_NAME = "pipeline-iris"
-PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-east1"
-PROJECT_ID = "ml-pipelines-project-433602"
-SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
-MODEL_NAME = "Iris-Classifier-XGBoost-2"
-IMAGE_NAME = "gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main"
+from src.iris_xgboost.constants import PIPELINE_NAME, PIPELINE_ROOT, MODEL_NAME, IMAGE_NAME, PROJECT_ID, REGION, SERVICE_ACCOUNT, REPO_ROOT
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     
     # Import components
     from src.iris_xgboost.pipelines.components.data import load_data
+    from src.iris_xgboost.pipelines.components.schema import load_schema
     from src.iris_xgboost.pipelines.components.evaluation import choose_best_model
     from src.iris_xgboost.pipelines.components.models import decision_tree, random_forest
     from src.iris_xgboost.pipelines.components.register import upload_model
@@ -26,6 +18,8 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     data_op = load_data(
         project_id=project_id, bq_dataset=bq_dataset, bq_table=bq_table
     ).set_display_name("Load data from BigQuery")
+
+    schema_load = load_schema(repo_root="ml_pipelines_kfp").set_display_name("Load schema relevant to model")
 
     dt_op = decision_tree(
         train_dataset=data_op.outputs["train_dataset"]
@@ -39,12 +33,13 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         test_dataset=data_op.outputs["test_dataset"],
         decision_tree_model=dt_op.outputs["output_model"],
         random_forest_model=rf_op.outputs["output_model"],
-    ).set_display_name("Select best Model")
+    ).set_display_name("Select best Model").after(schema_load)
 
     upload_model_op = upload_model(
         project_id=project_id,
         location=location,
         model=choose_model_op.outputs["best_model"],
+        schema=schema_load.outputs["gcs_schema"],
         model_name=MODEL_NAME,
         image_name=IMAGE_NAME
     ).set_display_name("Register Model")
@@ -79,4 +74,4 @@ if __name__ == "__main__":
             "project_id":PROJECT_ID
         }
     )
-    job.run(service_account=SERVICE_ACCOUNT)
+    job.submit(service_account=SERVICE_ACCOUNT)

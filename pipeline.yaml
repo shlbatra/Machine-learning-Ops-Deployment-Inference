@@ -74,6 +74,18 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
+  comp-load-schema:
+    executorLabel: exec-load-schema
+    inputDefinitions:
+      parameters:
+        repo_root:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        gcs_schema:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
   comp-random-forest:
     executorLabel: exec-random-forest
     inputDefinitions:
@@ -92,23 +104,6 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
-  comp-upload-model:
-    executorLabel: exec-upload-model
-    inputDefinitions:
-      artifacts:
-        model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-      parameters:
-        image_name:
-          parameterType: STRING
-        location:
-          parameterType: STRING
-        model_name:
-          parameterType: STRING
-        project_id:
-          parameterType: STRING
 defaultPipelineRoot: gs://ml-pipelines-kfp/pipeline_root
 deploymentSpec:
   executors:
@@ -247,6 +242,45 @@ deploymentSpec:
           \ y_test\n\n    X_train.to_csv(f\"{train_dataset.path}\", index=False)\n\
           \    X_test.to_csv(f\"{test_dataset.path}\", index=False)\n\n"
         image: python:3.10
+    exec-load-schema:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_schema
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'fsspec==2024.6.1'\
+          \ 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_schema(\n    repo_root: str,\n    gcs_schema: Output[Artifact],\n\
+          ):\n    import os\n    import fsspec\n\n    schema_path = \"/schemas/iris_xgboost\"\
+          \n\n    fs, _ = fsspec.core.url_to_fs(gcs_schema.path)\n    fs.makedirs(gcs_schema.path,\
+          \ exist_ok=True)\n\n    # Write serving schema into serving model directory.\n\
+          \    with fs.open(os.path.join(gcs_schema.path, \"instance.yaml\"), \"w\"\
+          ) as f:\n        with fsspec.open(\"schemas/iris_xgboost/vertex/instance.yaml\"\
+          , \"r\") as f2: #fsspec.open(os.path.join(repo_root, \"schemas/iris_xgboost/vertex/instance.yaml\"\
+          ), \"r\") as f2:\n            f.write(f2.read())\n\n    with fs.open(os.path.join(gcs_schema.path,\
+          \ \"prediction.yaml\"), \"w\") as f:\n        with fsspec.open(\"schemas/iris_xgboost/vertex/prediction.yaml\"\
+          , \"r\") as f2: #fsspec.open(os.path.join(repo_root, \"schemas/iris_xgboost/vertex/prediction.yaml\"\
+          ), \"r\") as f2:\n            f.write(f2.read())\n\n"
+        image: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
     exec-random-forest:
       container:
         args:
@@ -287,76 +321,6 @@ deploymentSpec:
           \ acc = accuracy_score(y_test, pred)\n\n    metrics.log_metric(\"accuracy\"\
           , (acc))\n\n    joblib.dump(model, output_model.path)\n\n"
         image: python:3.10
-    exec-upload-model:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - upload_model
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform==1.64.0'\
-          \ && \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef upload_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    model_name: str,\n    image_name: str\n):\n\
-          \    from google.cloud import aiplatform, aiplatform_v1\n\n    aiplatform.init(project=project_id,\
-          \ location=location)\n\n    explanation_parameters =  aiplatform_v1.types.explanation.ExplanationParameters({\"\
-          sampled_shapley_attribution\": {\"path_count\": 10}})\n    explanation_metadata\
-          \ = aiplatform_v1.types.explanation_metadata.ExplanationMetadata(\n    \
-          \                        inputs = {\n                                \"\
-          SepalLengthCm\": {},\n                                \"SepalWidthCm\":\
-          \ {},\n                                \"PetalLengthCm\": {},\n        \
-          \                        \"PetalWidthCm\": {}\n                        \
-          \    },\n                            outputs = {\n                     \
-          \           \"Species\": {}\n                            }\n           \
-          \             )\n\n    client = aiplatform_v1.ModelServiceClient(\n    \
-          \        client_options={\"api_endpoint\": f\"{location}-aiplatform.googleapis.com\"\
-          }\n    )\n\n    request = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
-          ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    results\
-          \ = list(client.list_models(request=request))\n    print(results)\n    if\
-          \ results:\n        parent_model = results[0]\n    else:\n        parent_model\
-          \ = None\n\n    predict_schemata=None\n\n    container_spec = aiplatform_v1.types.model.ModelContainerSpec(\n\
-          \        image_uri=image_name,\n        #env=[{\"name\": key, \"value\"\
-          : value] for key, value in env_vars.items()],\n        #command=command,\n\
-          \        args=[\"uvicorn\", \"src.iris_xgboost.server:app\", \"--host\"\
-          , \"0.0.0.0\", \"--port\", \"8080\"],\n        ports=[{\"container_port\"\
-          : 8080}],\n        predict_route=\"/predict\",\n        health_route=\"\
-          /health/live\"\n    )\n\n    new_model = aiplatform_v1.Model(\n        \
-          \        display_name=model_name,\n                container_spec=container_spec,\n\
-          \                artifact_uri=model.path.replace('/gcs/','gs://'),\n   \
-          \             # predict_schemata = predict_schemata\n    )\n\n\n    result\
-          \ = client.upload_model(\n                    request = dict(\n        \
-          \                parent= f\"projects/{project_id}/locations/{location}\"\
-          ,\n                        parent_model= parent_model.name if parent_model\
-          \ else None,\n                        model=new_model,\n               \
-          \     )\n            ).result()\n\n    # aiplatform.Model.upload(\n    #\
-          \     artifact_uri=model.path.replace('/gcs/','gs://'),\n    #     serving_container_image_uri=image_name,\n\
-          \    #     parent_model=parent_model.name if parent_model else None,\n \
-          \   #     display_name=model_name,\n    #     project=project_id,\n    #\
-          \     explanation_parameters=explanation_parameters,\n    #     explanation_metadata=explanation_metadata,\n\
-          \    # )\n\n    # aiplatform.Model.upload_scikit_learn_model_file(\n   \
-          \ #     model_file_path=model.path,\n    #     parent_model=parent_model.name\
-          \ if parent_model else None,\n    #     display_name=model_name,\n    #\
-          \     project=project_id,\n    #     explanation_parameters=explanation_parameters,\n\
-          \    #     explanation_metadata=explanation_metadata,\n    # )\n\n"
-        image: python:3.10
 pipelineInfo:
   name: pipeline-iris
 root:
@@ -384,6 +348,7 @@ root:
         dependentTasks:
         - decision-tree
         - load-data
+        - load-schema
         - random-forest
         inputs:
           artifacts:
@@ -431,6 +396,18 @@ root:
               componentInputParameter: project_id
         taskInfo:
           name: Load data from BigQuery
+      load-schema:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-load-schema
+        inputs:
+          parameters:
+            repo_root:
+              runtimeValue:
+                constant: ml_pipelines_kfp
+        taskInfo:
+          name: Load schema relevant to model
       random-forest:
         cachingOptions:
           enableCache: true
@@ -446,32 +423,6 @@ root:
                 producerTask: load-data
         taskInfo:
           name: Random Forest
-      upload-model:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-upload-model
-        dependentTasks:
-        - choose-best-model
-        inputs:
-          artifacts:
-            model:
-              taskOutputArtifact:
-                outputArtifactKey: best_model
-                producerTask: choose-best-model
-          parameters:
-            image_name:
-              runtimeValue:
-                constant: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
-            location:
-              componentInputParameter: location
-            model_name:
-              runtimeValue:
-                constant: Iris-Classifier-XGBoost-2
-            project_id:
-              componentInputParameter: project_id
-        taskInfo:
-          name: Register Model
   inputDefinitions:
     parameters:
       bq_dataset:
