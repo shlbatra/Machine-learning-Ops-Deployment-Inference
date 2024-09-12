@@ -1,7 +1,7 @@
 import sys
 import kfp
 import google.cloud.aiplatform as aip
-from src.iris_xgboost.constants import PIPELINE_NAME, PIPELINE_ROOT, MODEL_NAME, IMAGE_NAME, PROJECT_ID, REGION, SERVICE_ACCOUNT, REPO_ROOT
+from src.iris_xgboost.constants import PIPELINE_NAME, PIPELINE_ROOT, MODEL_NAME, IMAGE_NAME, PROJECT_ID, REGION, SERVICE_ACCOUNT, ENDPOINT_NAME
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
@@ -44,13 +44,14 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         image_name=IMAGE_NAME
     ).set_display_name("Register Model")
 
-    # deploy_model_op = deploy_model(
-    #     project_id=project_id,
-    #     location=location,
-    #     model=choose_model_op.outputs["best_model"],
-    #     endpoint_name="iris-model-endpoint",
-    #     model_name=MODEL_NAME
-    # ).set_display_name("Deploy Model").after(upload_model_op)
+    deploy_model_op = deploy_model(
+        project_id=project_id,
+        location=location,
+        model=choose_model_op.outputs["best_model"],
+        vertex_model = upload_model_op.outputs["vertex_model"],
+        endpoint_name=ENDPOINT_NAME,
+        model_name=MODEL_NAME
+    ).set_display_name("Deploy Model").after(upload_model_op)
 
 
 if __name__ == "__main__":

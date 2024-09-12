@@ -1,4 +1,4 @@
-from kfp.dsl import Input, Model, component
+from kfp.dsl import Input, Model, component, Artifact
 
 @component(base_image="python:3.10", 
     packages_to_install=["google-cloud-aiplatform",
@@ -11,6 +11,7 @@ def deploy_model(
     project_id: str,
     location: str,
     model: Input[Model],
+    vertex_model: Input[Artifact],
     endpoint_name: str,
     model_name: str
 ):
@@ -38,7 +39,7 @@ def deploy_model(
     parent_model=parent_models[0] if parent_models else None
     model_name = parent_model.name.split('/')[-1]
 
-    model = aiplatform.Model(model_name)
+    model = aiplatform.Model(model_name=model_name)
     print(type(model))
     print(model)
     endpoint = aiplatform.Endpoint.create(display_name=endpoint_name) # iris-endpt 

@@ -1,7 +1,7 @@
 from kfp.dsl import Input, Model, component, Output, Artifact
 
 @component(base_image="python:3.10", 
-    packages_to_install=["google-cloud-aiplatform==1.64.0"
+    packages_to_install=["google-cloud-aiplatform==1.64.0",
                         "fsspec==2024.6.1",
                         "gcsfs==2024.6.1"],
 )
@@ -9,9 +9,10 @@ def upload_model(
     project_id: str,
     location: str,
     model: Input[Model],
-    gcs_schema: Output[Artifact],
+    schema: Input[Artifact],
     model_name: str,
-    image_name: str
+    image_name: str,
+    vertex_model: Output[Artifact]
 ):
     from google.cloud import aiplatform, aiplatform_v1
     import fsspec, gcsfs
@@ -63,7 +64,7 @@ def upload_model(
     
     
     # Set up instance and prediction schema files
-    artifact_uri = gcs_schema.path.replace("/gcs/", "gs://")
+    artifact_uri = schema.path.replace("/gcs/", "gs://")
     instance_schema_filename = "instance.yaml"
     prediction_schema_filename = "prediction.yaml"
     parameters_schema_filename = "parameters.yaml"
@@ -98,6 +99,9 @@ def upload_model(
                     ),
                     timeout=1800
             ).result()
+    
+    vertex_model.metadata["registered"] = True
+    vertex_model.metadata["alias"] = "blessed"
     
     print(f"Model uploaded successfully:\n{result}")
 
