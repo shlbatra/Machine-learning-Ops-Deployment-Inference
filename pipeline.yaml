@@ -62,6 +62,10 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+        vertex_model:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
       parameters:
         endpoint_name:
           parameterType: STRING
@@ -269,18 +273,18 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef deploy_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    endpoint_name: str,\n    model_name: str\n):\n\
-          \    from google.cloud import aiplatform, aiplatform_v1\n    import pandas\n\
-          \    import sklearn\n    import numpy\n    import joblib\n\n    print(pandas.__version__)\n\
-          \    print(sklearn.__version__)\n    print(numpy.__version__)\n    print(joblib.__version__)\n\
-          \n    aiplatform.init(project=project_id, location=location)\n\n    client\
-          \ = aiplatform_v1.ModelServiceClient(client_options={\"api_endpoint\": f\"\
-          {location}-aiplatform.googleapis.com\"})\n    request = {\n        \"parent\"\
-          : f\"projects/{project_id}/locations/{location}\",\n        \"filter\":\
-          \ f\"display_name={model_name}\"\n    }\n    client.list_models(request=request)\n\
+          \ model: Input[Model],\n    vertex_model: Input[Artifact],\n    endpoint_name:\
+          \ str,\n    model_name: str\n):\n    from google.cloud import aiplatform,\
+          \ aiplatform_v1\n    import pandas\n    import sklearn\n    import numpy\n\
+          \    import joblib\n\n    print(pandas.__version__)\n    print(sklearn.__version__)\n\
+          \    print(numpy.__version__)\n    print(joblib.__version__)\n\n    aiplatform.init(project=project_id,\
+          \ location=location)\n\n    client = aiplatform_v1.ModelServiceClient(client_options={\"\
+          api_endpoint\": f\"{location}-aiplatform.googleapis.com\"})\n    request\
+          \ = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
+          ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    client.list_models(request=request)\n\
           \    parent_models = list(client.list_models(request=request))\n    print(parent_models)\n\
           \    parent_model=parent_models[0] if parent_models else None\n    model_name\
-          \ = parent_model.name.split('/')[-1]\n\n    model = aiplatform.Model(model_name)\n\
+          \ = parent_model.name.split('/')[-1]\n\n    model = aiplatform.Model(model_name=model_name)\n\
           \    print(type(model))\n    print(model)\n    endpoint = aiplatform.Endpoint.create(display_name=endpoint_name)\
           \ # iris-endpt \n    print(endpoint)\n    endpoint.deploy(\n        model=model,\n\
           \        machine_type=\"n1-standard-2\",  # Specify the machine type\n \
@@ -494,10 +498,10 @@ deploymentSpec:
           ,\n                        parent_model= parent_model.name if parent_model\
           \ else None,\n                        model=new_model,\n               \
           \     ),\n                    timeout=1800\n            ).result()\n\n \
-          \   vertex_model.registered = True\n    vertex_model.alias = \"blessed\"\
-          \n\n    print(f\"Model uploaded successfully:\\n{result}\")\n\n    # aiplatform.Model.upload(\n\
-          \    #     artifact_uri=model.path.replace('/gcs/','gs://'),\n    #    \
-          \ serving_container_image_uri=image_name,\n    #     parent_model=parent_model.name\
+          \   vertex_model.metadata[\"registered\"] = True\n    vertex_model.metadata[\"\
+          alias\"] = \"blessed\"\n\n    print(f\"Model uploaded successfully:\\n{result}\"\
+          )\n\n    # aiplatform.Model.upload(\n    #     artifact_uri=model.path.replace('/gcs/','gs://'),\n\
+          \    #     serving_container_image_uri=image_name,\n    #     parent_model=parent_model.name\
           \ if parent_model else None,\n    #     display_name=model_name,\n    #\
           \     project=project_id,\n    #     explanation_parameters=explanation_parameters,\n\
           \    #     explanation_metadata=explanation_metadata,\n    # )\n\n    #\
@@ -581,6 +585,10 @@ root:
               taskOutputArtifact:
                 outputArtifactKey: best_model
                 producerTask: choose-best-model
+            vertex_model:
+              taskOutputArtifact:
+                outputArtifactKey: vertex_model
+                producerTask: upload-model
           parameters:
             endpoint_name:
               runtimeValue:

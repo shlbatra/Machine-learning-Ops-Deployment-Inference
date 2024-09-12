@@ -1,11 +1,12 @@
 from kfp.dsl import Input, Model, component, Artifact
+from src.iris_xgboost.constants import IMAGE_NAME
 
-@component(base_image="python:3.10", 
-    packages_to_install=["google-cloud-aiplatform",
-        "pandas==2.0.0",
-        "scikit-learn==1.5.1",
-        "numpy==1.23.0",
-        "joblib==1.4.2"]
+@component(base_image=IMAGE_NAME, 
+    # packages_to_install=["google-cloud-aiplatform",
+    #     "pandas==2.0.0",
+    #     "scikit-learn==1.5.1",
+    #     "numpy==1.23.0",
+    #     "joblib==1.4.2"]
 )
 def deploy_model(
     project_id: str,
@@ -17,12 +18,12 @@ def deploy_model(
 ):
     from google.cloud import aiplatform, aiplatform_v1
     import pandas
-    import sklearn
+    # import sklearn
     import numpy
     import joblib
 
     print(pandas.__version__)
-    print(sklearn.__version__)
+    # print(sklearn.__version__)
     print(numpy.__version__)
     print(joblib.__version__)
 
