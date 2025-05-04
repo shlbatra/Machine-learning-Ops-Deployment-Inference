@@ -4,13 +4,13 @@ FROM python:3.10-slim
 # Set environment variables to prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 
-# Install curl to download Poetry
+# Install curl and needed dependencies
 RUN apt-get update && apt-get install -y curl
 
-# Install Poetry
-RUN curl -sSL https://install.python-poetry.org | python3 -
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Add Poetry to PATH
+# Add uv to PATH
 ENV PATH="/root/.local/bin:$PATH"
 
 # Set the working directory in the container
@@ -19,11 +19,9 @@ WORKDIR /app
 # Copy the local script into the container
 COPY . /app
 
-# Setup poetry environment
-RUN cd kfp-env && poetry install --no-root && cd ..
-
-# Install any needed packages specified in requirements.txt
-RUN pip install -e . --no-deps
+# Install dependencies using uv
+RUN uv venv
+RUN . .venv/bin/activate && uv pip install -e .
 
 ARG BUILD_COMMIT="unknown"
 ARG BUILD_BRANCH="main"
