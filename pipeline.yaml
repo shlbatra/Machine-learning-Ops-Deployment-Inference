@@ -291,7 +291,7 @@ deploymentSpec:
           \ == 0:\n            try:\n                endpoint.undeploy(deployed_model.id)\n\
           \            except Exception:\n                print(f\"Failed to undeploy\
           \ model {deployed_model.id}@{deployed_model.model_version_id}\")\n\n"
-        image: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
+        image: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
     exec-load-data:
       container:
         args:
@@ -376,7 +376,7 @@ deploymentSpec:
           \ \"prediction.yaml\"), \"w\") as f:\n        with fsspec.open(\"schemas/iris_xgboost/vertex/prediction.yaml\"\
           , \"r\") as f2: #fsspec.open(os.path.join(repo_root, \"schemas/iris_xgboost/vertex/prediction.yaml\"\
           ), \"r\") as f2:\n            f.write(f2.read())\n\n"
-        image: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
+        image: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
     exec-random-forest:
       container:
         args:
@@ -645,7 +645,7 @@ root:
           parameters:
             image_name:
               runtimeValue:
-                constant: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
+                constant: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
             location:
               componentInputParameter: location
             model_name:

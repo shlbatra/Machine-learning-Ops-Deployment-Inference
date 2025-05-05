@@ -6,7 +6,7 @@ import google.cloud.aiplatform as aip
 BUCKET = "gs://sb-vertex"
 PIPELINE_NAME = "pipeline-iris"
 PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-east1"
+REGION = "us-central1"
 PROJECT_ID = "deeplearning-sahil"
 SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
 MODEL_NAME = "Iris-Classifier-XGBoost"
