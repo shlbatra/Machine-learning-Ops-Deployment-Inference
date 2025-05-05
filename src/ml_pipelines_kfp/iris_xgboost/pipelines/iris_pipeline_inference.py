@@ -3,21 +3,21 @@ import kfp
 import google.cloud.aiplatform as aip
 
 # Project settings
-BUCKET = "gs://ml-pipelines-kfp"
+BUCKET = "gs://sb-vertex"
 PIPELINE_NAME = "pipeline-iris"
 PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
 REGION = "us-east1"
-PROJECT_ID = "ml-pipelines-project-433602"
-SERVICE_ACCOUNT = "ml-pipelines-sa@ml-pipelines-project-433602.iam.gserviceaccount.com"
-MODEL_NAME = "Iris-Classifier-XGBoost-2"
+PROJECT_ID = "deeplearning-sahil"
+SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
+MODEL_NAME = "Iris-Classifier-XGBoost"
 
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     
     # Import components
-    from src.iris_xgboost.pipelines.components.get_model import get_model
-    from src.iris_xgboost.pipelines.components.inference import inference_model
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.get_model import get_model
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.inference import inference_model
 
     # Start pipeline definition
 
