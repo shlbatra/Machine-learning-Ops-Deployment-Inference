@@ -2,11 +2,11 @@ from kfp.dsl import Input, Model, component, Artifact
 from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
 
 @component(base_image=IMAGE_NAME, 
-    # packages_to_install=["google-cloud-aiplatform",
-    #     "pandas==2.0.0",
-    #     "scikit-learn==1.5.1",
-    #     "numpy==1.23.0",
-    #     "joblib==1.4.2"]
+    packages_to_install=["google-cloud-aiplatform",
+        "pandas==2.0.0",
+        "scikit-learn==1.5.1",
+        "numpy==1.23.0",
+        "joblib==1.4.2"]
 )
 def deploy_model(
     project_id: str,
