@@ -15,8 +15,10 @@ jobs:
     env:
       BUILD_BRANCH: ${{ github.ref_name }}
       BUILD_COMMIT: ${{ github.sha }}
-      GCR_PROJECT_ID: ml-pipelines-project-433602
-      GCR_IMAGE_NAME_XGBOOST: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image
+      PROJECT_ID: deeplearning-sahil
+      LOCATION: us
+      REPOSITORY: sahil-experiment-docker-images
+      IMAGE_NAME: ml-pipelines-kfp-image
 
     steps:
       - name: Checkout code
@@ -30,18 +32,18 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
-      - name: Configure Docker to use gcloud as a credential helper
+      - name: Configure Docker for Artifact Registry
         run: |
-          gcloud auth configure-docker
+          gcloud auth configure-docker ${{ env.LOCATION }}-docker.pkg.dev
 
       - name: Build ml_pipeline_kfp_image
         run: |
           docker build \
             --build-arg BUILD_BRANCH=${{ env.BUILD_BRANCH }} \
             --build-arg BUILD_COMMIT=${{ env.BUILD_COMMIT }} \
-            --tag ${{ env.GCR_IMAGE_NAME_XGBOOST }}:${{ github.ref_name }} \
+            --tag ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} \
             --file Dockerfile .
 
       - name: Push ml_pipeline_kfp_image
         run: |
-          docker push ${{ env.GCR_IMAGE_NAME_XGBOOST }}:${{ github.ref_name }}
+          docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}

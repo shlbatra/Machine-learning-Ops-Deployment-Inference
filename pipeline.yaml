@@ -5,10 +5,6 @@
 #    bq_table: str
 #    location: str
 #    project_id: str
-# Outputs:
-#    choose-best-model-metrics: system.Metrics
-#    decision-tree-metrics: system.Metrics
-#    random-forest-metrics: system.Metrics
 components:
   comp-choose-best-model:
     executorLabel: exec-choose-best-model
@@ -152,7 +148,7 @@ components:
           artifactType:
             schemaTitle: system.Artifact
             schemaVersion: 0.0.1
-defaultPipelineRoot: gs://ml-pipelines-kfp/pipeline_root
+defaultPipelineRoot: gs://sb-vertex/pipeline_root
 deploymentSpec:
   executors:
     exec-choose-best-model:
@@ -167,7 +163,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
           \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' 'fsspec==2024.6.1'\
@@ -216,7 +212,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
           \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
@@ -256,11 +252,9 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
-          \ 'pandas==2.0.0' 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2'\
-          \ && \"$0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -275,8 +269,8 @@ deploymentSpec:
           \ *\n\ndef deploy_model(\n    project_id: str,\n    location: str,\n   \
           \ model: Input[Model],\n    vertex_model: Input[Artifact],\n    endpoint_name:\
           \ str,\n    model_name: str\n):\n    from google.cloud import aiplatform,\
-          \ aiplatform_v1\n    import pandas\n    import sklearn\n    import numpy\n\
-          \    import joblib\n\n    print(pandas.__version__)\n    print(sklearn.__version__)\n\
+          \ aiplatform_v1\n    import pandas\n    # import sklearn\n    import numpy\n\
+          \    import joblib\n\n    print(pandas.__version__)\n    # print(sklearn.__version__)\n\
           \    print(numpy.__version__)\n    print(joblib.__version__)\n\n    aiplatform.init(project=project_id,\
           \ location=location)\n\n    client = aiplatform_v1.ModelServiceClient(client_options={\"\
           api_endpoint\": f\"{location}-aiplatform.googleapis.com\"})\n    request\
@@ -297,7 +291,7 @@ deploymentSpec:
           \ == 0:\n            try:\n                endpoint.undeploy(deployed_model.id)\n\
           \            except Exception:\n                print(f\"Failed to undeploy\
           \ model {deployed_model.id}@{deployed_model.model_version_id}\")\n\n"
-        image: python:3.10
+        image: gcr.io/ml-pipelines-project-433602/ml-pipelines-kfp-image:main
     exec-load-data:
       container:
         args:
@@ -310,7 +304,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
           \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'google-cloud-bigquery==2.34.3'\
@@ -356,7 +350,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'fsspec==2024.6.1'\
           \ 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
@@ -395,7 +389,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
           \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
@@ -435,7 +429,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform==1.64.0'\
           \ 'fsspec==2024.6.1' 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
@@ -515,20 +509,6 @@ pipelineInfo:
   name: pipeline-iris
 root:
   dag:
-    outputs:
-      artifacts:
-        choose-best-model-metrics:
-          artifactSelectors:
-          - outputArtifactKey: metrics
-            producerSubtask: choose-best-model
-        decision-tree-metrics:
-          artifactSelectors:
-          - outputArtifactKey: metrics
-            producerSubtask: decision-tree
-        random-forest-metrics:
-          artifactSelectors:
-          - outputArtifactKey: metrics
-            producerSubtask: random-forest
     tasks:
       choose-best-model:
         cachingOptions:
@@ -592,12 +572,12 @@ root:
           parameters:
             endpoint_name:
               runtimeValue:
-                constant: Iris-Classifier-XGBoost-2
+                constant: Iris-Classifier-XGBoost
             location:
               componentInputParameter: location
             model_name:
               runtimeValue:
-                constant: Iris-Classifier-XGBoost-2
+                constant: Iris-Classifier-XGBoost
             project_id:
               componentInputParameter: project_id
         taskInfo:
@@ -626,7 +606,7 @@ root:
           parameters:
             repo_root:
               runtimeValue:
-                constant: ml_pipelines_kfp
+                constant: /Users/shlba/Desktop/Docs/Study/code/ml_pipelines_kfp
         taskInfo:
           name: Load schema relevant to model
       random-forest:
@@ -670,7 +650,7 @@ root:
               componentInputParameter: location
             model_name:
               runtimeValue:
-                constant: Iris-Classifier-XGBoost-2
+                constant: Iris-Classifier-XGBoost
             project_id:
               componentInputParameter: project_id
         taskInfo:
@@ -685,19 +665,5 @@ root:
         parameterType: STRING
       project_id:
         parameterType: STRING
-  outputDefinitions:
-    artifacts:
-      choose-best-model-metrics:
-        artifactType:
-          schemaTitle: system.Metrics
-          schemaVersion: 0.0.1
-      decision-tree-metrics:
-        artifactType:
-          schemaTitle: system.Metrics
-          schemaVersion: 0.0.1
-      random-forest-metrics:
-        artifactType:
-          schemaTitle: system.Metrics
-          schemaVersion: 0.0.1
 schemaVersion: 2.1.0
-sdkVersion: kfp-2.7.0
+sdkVersion: kfp-2.13.0

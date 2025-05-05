@@ -1,5 +1,5 @@
 from kfp.dsl import Input, Model, component, Artifact
-from src.iris_xgboost.constants import IMAGE_NAME
+from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
 
 @component(base_image=IMAGE_NAME, 
     # packages_to_install=["google-cloud-aiplatform",
