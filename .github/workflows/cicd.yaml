@@ -15,8 +15,8 @@ jobs:
     env:
       BUILD_BRANCH: ${{ github.ref_name }}
       BUILD_COMMIT: ${{ github.sha }}
-      PROJECT_ID: deeplearning-sahil
-      LOCATION: us
+      PROJECT_ID: "deeplearning-sahil"
+      LOCATION: "us"
       REPOSITORY: sahil-experiment-docker-images
       IMAGE_NAME: ml-pipelines-kfp-image
 
