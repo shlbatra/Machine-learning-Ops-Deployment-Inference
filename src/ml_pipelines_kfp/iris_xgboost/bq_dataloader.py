@@ -31,7 +31,7 @@ def load_iris_to_bigquery():
     # Format column names to match BigQuery standards
     df.columns = df.columns.str.replace('.', '_')  # Replace dots with underscores
     print(df.head())
-    df['variety'] = df['variety'].replace({
+    df['Species'] = df['Species'].replace({
         "Setosa": "Iris-setosa",
         "Versicolor": "Iris-versicolor",
         "Virginica": "Iris-virginica"
