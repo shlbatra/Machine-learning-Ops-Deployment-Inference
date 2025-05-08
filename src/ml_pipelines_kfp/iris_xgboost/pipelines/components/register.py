@@ -46,22 +46,6 @@ def upload_model(
         predict_route="/predict",
         health_route="/health/live"
     )
-
-    # Set up explanation params
-    explanation_parameters =  aiplatform_v1.types.explanation.ExplanationParameters({"sampled_shapley_attribution": {"path_count": 10}})
-    explanation_metadata = aiplatform_v1.types.explanation_metadata.ExplanationMetadata(
-                            inputs = {
-                                "SepalLengthCm": {},
-                                "SepalWidthCm": {},
-                                "PetalLengthCm": {},
-                                "PetalWidthCm": {}
-                            },
-                            outputs = {
-                                "Species": {}
-                            }
-                        )
-    explanation_spec = aiplatform_v1.types.ExplanationSpec(parameters=explanation_parameters, metadata=explanation_metadata)
-    
     
     # Set up instance and prediction schema files
     artifact_uri = schema.path.replace("/gcs/", "gs://")
@@ -104,22 +88,3 @@ def upload_model(
     vertex_model.metadata["alias"] = "blessed"
     
     print(f"Model uploaded successfully:\n{result}")
-
-    # aiplatform.Model.upload(
-    #     artifact_uri=model.path.replace('/gcs/','gs://'),
-    #     serving_container_image_uri=image_name,
-    #     parent_model=parent_model.name if parent_model else None,
-    #     display_name=model_name,
-    #     project=project_id,
-    #     explanation_parameters=explanation_parameters,
-    #     explanation_metadata=explanation_metadata,
-    # )
-
-    # aiplatform.Model.upload_scikit_learn_model_file(
-    #     model_file_path=model.path,
-    #     parent_model=parent_model.name if parent_model else None,
-    #     display_name=model_name,
-    #     project=project_id,
-    #     explanation_parameters=explanation_parameters,
-    #     explanation_metadata=explanation_metadata,
-    # )
