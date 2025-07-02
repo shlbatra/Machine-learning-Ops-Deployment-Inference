@@ -3,161 +3,55 @@
 # Inputs:
 #    bq_dataset: str
 #    bq_table: str
+#    bq_table_predictions: str
 #    location: str
 #    project_id: str
 components:
-  comp-choose-best-model:
-    executorLabel: exec-choose-best-model
+  comp-get-model:
+    executorLabel: exec-get-model
     inputDefinitions:
-      artifacts:
-        decision_tree_model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-        random_forest_model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-        test_dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-    outputDefinitions:
-      artifacts:
-        best_model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-        metrics:
-          artifactType:
-            schemaTitle: system.Metrics
-            schemaVersion: 0.0.1
-  comp-decision-tree:
-    executorLabel: exec-decision-tree
-    inputDefinitions:
-      artifacts:
-        train_dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-    outputDefinitions:
-      artifacts:
-        metrics:
-          artifactType:
-            schemaTitle: system.Metrics
-            schemaVersion: 0.0.1
-        output_model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-  comp-deploy-model:
-    executorLabel: exec-deploy-model
-    inputDefinitions:
-      artifacts:
-        model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-        vertex_model:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
       parameters:
-        endpoint_name:
-          parameterType: STRING
         location:
           parameterType: STRING
         model_name:
           parameterType: STRING
         project_id:
           parameterType: STRING
-  comp-load-data:
-    executorLabel: exec-load-data
+    outputDefinitions:
+      artifacts:
+        latest_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-inference-model:
+    executorLabel: exec-inference-model
     inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
       parameters:
         bq_dataset:
           parameterType: STRING
         bq_table:
           parameterType: STRING
-        project_id:
-          parameterType: STRING
-    outputDefinitions:
-      artifacts:
-        test_dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-        train_dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-  comp-load-schema:
-    executorLabel: exec-load-schema
-    inputDefinitions:
-      parameters:
-        repo_root:
-          parameterType: STRING
-    outputDefinitions:
-      artifacts:
-        gcs_schema:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
-  comp-random-forest:
-    executorLabel: exec-random-forest
-    inputDefinitions:
-      artifacts:
-        train_dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
-    outputDefinitions:
-      artifacts:
-        metrics:
-          artifactType:
-            schemaTitle: system.Metrics
-            schemaVersion: 0.0.1
-        output_model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-  comp-upload-model:
-    executorLabel: exec-upload-model
-    inputDefinitions:
-      artifacts:
-        model:
-          artifactType:
-            schemaTitle: system.Model
-            schemaVersion: 0.0.1
-        schema:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
-      parameters:
-        image_name:
+        bq_table_predictions:
           parameterType: STRING
         location:
           parameterType: STRING
-        model_name:
-          parameterType: STRING
         project_id:
           parameterType: STRING
-    outputDefinitions:
-      artifacts:
-        vertex_model:
-          artifactType:
-            schemaTitle: system.Artifact
-            schemaVersion: 0.0.1
 defaultPipelineRoot: gs://sb-vertex/pipeline_root
 deploymentSpec:
   executors:
-    exec-choose-best-model:
+    exec-get-model:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - choose_best_model
+        - get_model
         command:
         - sh
         - -c
@@ -165,9 +59,8 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' 'fsspec==2024.6.1'\
-          \ 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform==1.64.0'\
+          \ 'fsspec==2024.6.1' 'gcsfs==2024.6.1' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -179,34 +72,33 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef choose_best_model(\n    test_dataset: Input[Dataset],\n    decision_tree_model:\
-          \ Input[Model],\n    random_forest_model: Input[Model],\n    metrics: Output[Metrics],\n\
-          \    best_model: Output[Model],\n):\n    import joblib\n    import pandas\
-          \ as pd\n    from sklearn.metrics import accuracy_score\n    import os,\
-          \ pickle, fsspec, gcsfs\n\n    test_data = pd.read_csv(test_dataset.path)\n\
-          \n    dt = joblib.load(decision_tree_model.path)\n    rf = joblib.load(random_forest_model.path)\n\
-          \n    dt_pred = dt.predict(test_data.drop(\"Species\", axis=1))\n    rf_pred\
-          \ = rf.predict(test_data.drop(\"Species\", axis=1))\n\n    dt_accuracy =\
-          \ accuracy_score(test_data[\"Species\"], dt_pred)\n    rf_accuracy = accuracy_score(test_data[\"\
-          Species\"], rf_pred)\n    print(dt_accuracy)\n    print(rf_accuracy)\n\n\
-          \    metrics.log_metric(\"Decision Tree (Accuracy)\", (dt_accuracy))\n \
-          \   metrics.log_metric(\"Random Forest (Accuracy)\", (rf_accuracy))\n\n\
-          \    filepath=best_model.path.replace(\"/gcs/\", \"gs://\")\n    filename='model.joblib'\n\
-          \    fs, _ = fsspec.core.url_to_fs(filepath)\n    fs.makedirs(filepath,\
-          \ exist_ok=True)\n    model_uri = os.path.join(filepath, filename)\n   \
-          \ with fs.open(model_uri, \"wb\") as f:\n        if rf_accuracy >= dt_accuracy:\n\
-          \           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)\n     \
-          \   else:\n           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)\n\
-          \n\n    # if rf_accuracy >= dt_accuracy:\n    #     joblib.dump(dt, best_model.path)\n\
-          \    # else:\n    #     joblib.dump(rf, best_model.path)\n\n"
+          \ *\n\ndef get_model(\n    project_id: str,\n    location: str,\n    model_name:\
+          \ str,\n    latest_model: Output[Model],\n):\n    from google.cloud import\
+          \ aiplatform, aiplatform_v1\n    import fsspec\n    import gcsfs\n    import\
+          \ joblib\n\n    aiplatform.init(project=project_id, location=location)\n\
+          \n\n    client = aiplatform_v1.ModelServiceClient(\n            client_options={\"\
+          api_endpoint\": f\"{location}-aiplatform.googleapis.com\"}\n    )\n\n  \
+          \  request = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
+          ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    parent_models\
+          \ = list(client.list_models(request=request))\n    parent_model = parent_models[0]\
+          \ if parent_models else None\n\n    if not parent_model:\n        print(f\"\
+          Could not find model with f{model_name}\")\n        return\n\n    print(f\"\
+          Parent Model - {parent_model}\")\n    print(f\"class - {type(parent_model)}\"\
+          )\n    print(f\"name - {parent_model.name}\")\n    print(f\"model path-\
+          \ {parent_model.artifact_uri}\")\n    print(f\"output model path - {latest_model.path}\"\
+          )\n    latest_model_path = latest_model.path.replace(\"/gcs/\", \"gs://\"\
+          )\n    print(f\"output model path cleaned - {latest_model_path}\")\n   \
+          \ fs, _ = fsspec.core.url_to_fs(parent_model.artifact_uri)\n    print(f\"\
+          file system: {fs}\")\n    fs.copy(parent_model.artifact_uri+\"/\", latest_model.path.replace(\"\
+          /gcs/\", \"gs://\"), recursive=True)\n\n"
         image: python:3.10
-    exec-decision-tree:
+    exec-inference-model:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - decision_tree
+        - inference_model
         command:
         - sh
         - -c
@@ -215,106 +107,7 @@ deploymentSpec:
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
-          \n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef decision_tree(\n    train_dataset: Input[Dataset],\n    metrics:\
-          \ Output[Metrics],\n    output_model: Output[Model],\n):\n    import joblib\n\
-          \    import pandas as pd\n    from sklearn.metrics import accuracy_score\n\
-          \    from sklearn.model_selection import train_test_split\n    from sklearn.tree\
-          \ import DecisionTreeClassifier\n\n    train = pd.read_csv(train_dataset.path)\n\
-          \n    X_train, X_test, y_train, y_test = train_test_split(\n        train.drop(\"\
-          Species\", axis=1),\n        train[\"Species\"],\n        test_size=0.2,\n\
-          \        random_state=42,\n    )\n\n    model = DecisionTreeClassifier()\n\
-          \    model.fit(X_train, y_train)\n    pred = model.predict(X_test)\n   \
-          \ acc = accuracy_score(y_test, pred)\n\n    metrics.log_metric(\"accuracy\"\
-          , (acc))\n\n    joblib.dump(model, output_model.path)\n\n"
-        image: python:3.10
-    exec-deploy-model:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - deploy_model
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform>=1.59.0'\
-          \ 'pandas>=2.2.2' 'scikit-learn>=1.5.1' 'numpy>=2.0.0' 'joblib>=1.4.2' &&\
-          \ \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef deploy_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    vertex_model: Input[Artifact],\n    endpoint_name:\
-          \ str,\n    model_name: str\n):\n    from google.cloud import aiplatform,\
-          \ aiplatform_v1\n    import pandas\n    import numpy\n    import joblib\n\
-          \n    print(f\"Pandas version: {pandas.__version__}\")\n    print(f\"NumPy\
-          \ version: {numpy.__version__}\")\n    print(f\"Joblib version: {joblib.__version__}\"\
-          )\n\n    aiplatform.init(project=project_id, location=location)\n\n    client\
-          \ = aiplatform_v1.ModelServiceClient(\n        client_options={\"api_endpoint\"\
-          : f\"{location}-aiplatform.googleapis.com\"}\n    )\n    request = {\n \
-          \       \"parent\": f\"projects/{project_id}/locations/{location}\",\n \
-          \       \"filter\": f\"display_name={model_name}\"\n    }\n\n    parent_models\
-          \ = list(client.list_models(request=request))\n    print(f\"Parent models:\
-          \ {parent_models}\")\n\n    parent_model = parent_models[0] if parent_models\
-          \ else None\n    if not parent_model:\n        raise ValueError(\"No parent\
-          \ model found with the specified name.\")\n\n    model_name = parent_model.name.split('/')[-1]\n\
-          \    model = aiplatform.Model(model_name=model_name)\n\n    print(f\"Model\
-          \ type: {type(model)}\")\n    print(f\"Model details: {model}\")\n\n   \
-          \ endpoint = aiplatform.Endpoint.create(display_name=endpoint_name)\n  \
-          \  print(f\"Endpoint created: {endpoint}\")\n\n    endpoint.deploy(\n  \
-          \      model=model,\n        machine_type=\"n1-standard-2\",\n        traffic_percentage=100\n\
-          \    )\n\n    print(f\"Model deployed to endpoint {endpoint.display_name}\"\
-          )\n\n    print(\"Cleaning up legacy deployments with no traffic assigned...\"\
-          )\n    traffic_split = endpoint.traffic_split\n    for deployed_model in\
-          \ endpoint.list_models():\n        print(f\"Checking deployed model: {deployed_model.id}@{deployed_model.model_version_id}\"\
-          )\n        if deployed_model.id not in traffic_split or traffic_split[deployed_model.id]\
-          \ == 0:\n            try:\n                endpoint.undeploy(deployed_model.id)\n\
-          \                print(f\"Successfully undeployed model {deployed_model.id}@{deployed_model.model_version_id}\"\
-          )\n            except Exception as e:\n                print(f\"Failed to\
-          \ undeploy model {deployed_model.id}@{deployed_model.model_version_id}:\
-          \ {e}\")\n\n"
-        image: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
-    exec-load-data:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - load_data
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'google-cloud-bigquery==2.34.3'\
+          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' 'google-cloud-bigquery==2.34.3'\
           \ && \"$0\" \"$@\"\n"
         - sh
         - -ec
@@ -327,239 +120,40 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef load_data(\n    project_id: str,\n    bq_dataset: str,\n    bq_table:\
-          \ str,\n    train_dataset: Output[Dataset],\n    test_dataset: Output[Dataset],\n\
-          ):\n    import pandas as pd\n    from google.cloud import bigquery\n   \
-          \ from sklearn.model_selection import train_test_split\n\n    client = bigquery.Client()\n\
-          \n    dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)\n\
-          \    table_ref = dataset_ref.table(bq_table)\n    table = bigquery.Table(table_ref)\n\
-          \    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\n\
-          \    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
-          \n    df = pd.concat(dfs, ignore_index=True)\n    del dfs\n\n    df[\"Species\"\
-          ].replace(\n        {\n            \"Iris-versicolor\": 0,\n           \
-          \ \"Iris-virginica\": 1,\n            \"Iris-setosa\": 2,\n        },\n\
-          \        inplace=True,\n    )\n\n    X_train, X_test, y_train, y_test =\
-          \ train_test_split(\n        df.drop([\"Species\"], axis=1),\n        df[\"\
-          Species\"],\n        test_size=0.2,\n        random_state=42,\n    )\n\n\
-          \    X_train[\"Species\"] = y_train\n    X_test[\"Species\"] = y_test\n\n\
-          \    X_train.to_csv(f\"{train_dataset.path}\", index=False)\n    X_test.to_csv(f\"\
-          {test_dataset.path}\", index=False)\n\n"
-        image: python:3.10
-    exec-load-schema:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - load_schema
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'fsspec==2024.6.1'\
-          \ 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef load_schema(\n    repo_root: str,\n    gcs_schema: Output[Artifact],\n\
-          ):\n    import os\n    import fsspec\n\n    schema_path = \"/schemas/iris_xgboost\"\
-          \n\n    fs, _ = fsspec.core.url_to_fs(gcs_schema.path)\n    fs.makedirs(gcs_schema.path,\
-          \ exist_ok=True)\n\n    # Write serving schema into serving model directory.\n\
-          \    with fs.open(os.path.join(gcs_schema.path, \"instance.yaml\"), \"w\"\
-          ) as f:\n        with fsspec.open(\"schemas/iris_xgboost/vertex/instance.yaml\"\
-          , \"r\") as f2: #fsspec.open(os.path.join(repo_root, \"schemas/iris_xgboost/vertex/instance.yaml\"\
-          ), \"r\") as f2:\n            f.write(f2.read())\n\n    with fs.open(os.path.join(gcs_schema.path,\
-          \ \"prediction.yaml\"), \"w\") as f:\n        with fsspec.open(\"schemas/iris_xgboost/vertex/prediction.yaml\"\
-          , \"r\") as f2: #fsspec.open(os.path.join(repo_root, \"schemas/iris_xgboost/vertex/prediction.yaml\"\
-          ), \"r\") as f2:\n            f.write(f2.read())\n\n"
-        image: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
-    exec-random-forest:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - random_forest
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.0'\
-          \ 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2' && \"$0\" \"$@\"\
-          \n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef random_forest(\n    train_dataset: Input[Dataset],\n    metrics:\
-          \ Output[Metrics],\n    output_model: Output[Model],\n):\n    import joblib\n\
-          \    import pandas as pd\n    from sklearn.ensemble import RandomForestClassifier\n\
-          \    from sklearn.metrics import accuracy_score\n    from sklearn.model_selection\
-          \ import train_test_split\n\n    train = pd.read_csv(train_dataset.path)\n\
-          \n    X_train, X_test, y_train, y_test = train_test_split(\n        train.drop(\"\
-          Species\", axis=1),\n        train[\"Species\"],\n        test_size=0.2,\n\
-          \        random_state=42,\n    )\n\n    model = RandomForestClassifier()\n\
-          \    model.fit(X_train, y_train)\n    pred = model.predict(X_test)\n   \
-          \ acc = accuracy_score(y_test, pred)\n\n    metrics.log_metric(\"accuracy\"\
-          , (acc))\n\n    joblib.dump(model, output_model.path)\n\n"
-        image: python:3.10
-    exec-upload-model:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - upload_model
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform==1.64.0'\
-          \ 'fsspec==2024.6.1' 'gcsfs==2024.6.1' && \"$0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef upload_model(\n    project_id: str,\n    location: str,\n   \
-          \ model: Input[Model],\n    schema: Input[Artifact],\n    model_name: str,\n\
-          \    image_name: str,\n    vertex_model: Output[Artifact]\n):\n    from\
-          \ google.cloud import aiplatform, aiplatform_v1\n    import fsspec, gcsfs\n\
-          \n    aiplatform.init(project=project_id, location=location)\n\n    # Check\
-          \ model exists in Registry\n\n    client = aiplatform_v1.ModelServiceClient(\n\
-          \            client_options={\"api_endpoint\": f\"{location}-aiplatform.googleapis.com\"\
-          }\n    )\n\n    # Get parent model if exists\n\n    request = {\n      \
-          \  \"parent\": f\"projects/{project_id}/locations/{location}\",\n      \
-          \  \"filter\": f\"display_name={model_name}\"\n    }\n    results = list(client.list_models(request=request))\n\
-          \n    if results:\n        parent_model = results[0]\n    else:\n      \
-          \  parent_model = None\n\n    # Set up container spec\n    container_spec\
-          \ = aiplatform_v1.types.model.ModelContainerSpec(\n        image_uri=image_name,\n\
-          \        args=[\"uvicorn\", \"src.ml_pipelines_kfp.iris_xgboost.server:app\"\
-          , \"--host\", \"0.0.0.0\", \"--port\", \"8080\"],\n        ports=[{\"container_port\"\
-          : 8080}],\n        predict_route=\"/predict\",\n        health_route=\"\
-          /health/live\"\n    )\n\n    # Set up instance and prediction schema files\n\
-          \    artifact_uri = schema.path.replace(\"/gcs/\", \"gs://\")\n    instance_schema_filename\
-          \ = \"instance.yaml\"\n    prediction_schema_filename = \"prediction.yaml\"\
-          \n    parameters_schema_filename = \"parameters.yaml\"\n    fs, _ = fsspec.core.url_to_fs(artifact_uri)\n\
-          \    if isinstance(fs, gcsfs.GCSFileSystem):\n        instance_schema_uri\
-          \ = f\"{artifact_uri}/{instance_schema_filename}\"\n        prediction_schema_uri\
-          \ = f\"{artifact_uri}/{prediction_schema_filename}\"\n        parameters_schema_uri\
-          \ = f\"{artifact_uri}/{parameters_schema_filename}\"\n\n        predict_schemata\
-          \ = aiplatform_v1.PredictSchemata(\n            instance_schema_uri=instance_schema_uri\
-          \ if fs.exists(instance_schema_uri) else None,\n            parameters_schema_uri=parameters_schema_uri\
-          \ if fs.exists(parameters_schema_uri) else None,\n            prediction_schema_uri=prediction_schema_uri\
-          \ if fs.exists(prediction_schema_uri) else None,\n        )\n    else:\n\
-          \        predict_schemata = None\n\n    new_model = aiplatform_v1.Model(\n\
-          \                display_name=model_name,\n                container_spec=container_spec,\n\
-          \                artifact_uri=model.path.replace('/gcs/','gs://'),\n   \
-          \             predict_schemata = predict_schemata,\n                version_aliases=[\"\
-          blessed\"]\n    )\n\n\n    result = client.upload_model(\n             \
-          \       request = dict(\n                        parent= f\"projects/{project_id}/locations/{location}\"\
-          ,\n                        parent_model= parent_model.name if parent_model\
-          \ else None,\n                        model=new_model,\n               \
-          \     ),\n                    timeout=1800\n            ).result()\n\n \
-          \   vertex_model.metadata[\"registered\"] = True\n    vertex_model.metadata[\"\
-          alias\"] = \"blessed\"\n\n    print(f\"Model uploaded successfully:\\n{result}\"\
-          )\n\n"
+          \ *\n\ndef inference_model(\n    project_id: str,\n    location: str,\n\
+          \    bq_dataset: str,\n    bq_table: str,\n    bq_table_predictions: str,\n\
+          \    model: Input[Model],\n):\n    import joblib\n    import pandas as pd\n\
+          \    import numpy as np\n    from google.cloud import bigquery\n    from\
+          \ datetime import datetime\n\n    client = bigquery.Client()\n\n    dataset_ref\
+          \ = bigquery.DatasetReference(project_id, bq_dataset)\n    table_ref = dataset_ref.table(bq_table)\n\
+          \    table = bigquery.Table(table_ref)\n    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\
+          \n    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
+          \n    df = pd.concat(dfs, ignore_index=True)\n    print(\"Model Path: f{model.path}\"\
+          )\n    inf_model = joblib.load(model.path+'/model.joblib')\n    inf_pred\
+          \ = inf_model.predict(df)\n    print(len(inf_pred))\n    print(inf_pred[:5])\n\
+          \n    # Create predictions dataframe\n    predictions_df = df.copy()\n \
+          \   predictions_df['prediction'] = inf_pred\n    predictions_df['prediction_timestamp']\
+          \ = datetime.now()\n    predictions_df['model_path'] = model.path\n\n  \
+          \  # Write predictions to BigQuery\n    predictions_table_id = f\"{project_id}.{bq_dataset}.{bq_table_predictions}\"\
+          \n\n    job_config = bigquery.LoadJobConfig(\n        write_disposition=\"\
+          WRITE_APPEND\",\n        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],\n\
+          \    )\n\n    job = client.load_table_from_dataframe(\n        predictions_df,\
+          \ predictions_table_id, job_config=job_config\n    )\n    job.result() \
+          \ # Wait for the job to complete\n\n    print(f\"Loaded {len(predictions_df)}\
+          \ rows to {predictions_table_id}\")\n\n"
         image: python:3.10
 pipelineInfo:
   name: pipeline-iris
 root:
   dag:
     tasks:
-      choose-best-model:
+      get-model:
         cachingOptions:
           enableCache: true
         componentRef:
-          name: comp-choose-best-model
-        dependentTasks:
-        - decision-tree
-        - load-data
-        - load-schema
-        - random-forest
+          name: comp-get-model
         inputs:
-          artifacts:
-            decision_tree_model:
-              taskOutputArtifact:
-                outputArtifactKey: output_model
-                producerTask: decision-tree
-            random_forest_model:
-              taskOutputArtifact:
-                outputArtifactKey: output_model
-                producerTask: random-forest
-            test_dataset:
-              taskOutputArtifact:
-                outputArtifactKey: test_dataset
-                producerTask: load-data
-        taskInfo:
-          name: Select best Model
-      decision-tree:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-decision-tree
-        dependentTasks:
-        - load-data
-        inputs:
-          artifacts:
-            train_dataset:
-              taskOutputArtifact:
-                outputArtifactKey: train_dataset
-                producerTask: load-data
-        taskInfo:
-          name: Decision Tree
-      deploy-model:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-deploy-model
-        dependentTasks:
-        - choose-best-model
-        - upload-model
-        inputs:
-          artifacts:
-            model:
-              taskOutputArtifact:
-                outputArtifactKey: best_model
-                producerTask: choose-best-model
-            vertex_model:
-              taskOutputArtifact:
-                outputArtifactKey: vertex_model
-                producerTask: upload-model
           parameters:
-            endpoint_name:
-              runtimeValue:
-                constant: Iris-Classifier-XGBoost
             location:
               componentInputParameter: location
             model_name:
@@ -568,85 +162,40 @@ root:
             project_id:
               componentInputParameter: project_id
         taskInfo:
-          name: Deploy Model
-      load-data:
+          name: Get Model
+      inference-model:
         cachingOptions:
           enableCache: true
         componentRef:
-          name: comp-load-data
+          name: comp-inference-model
+        dependentTasks:
+        - get-model
         inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: latest_model
+                producerTask: get-model
           parameters:
             bq_dataset:
               componentInputParameter: bq_dataset
             bq_table:
               componentInputParameter: bq_table
-            project_id:
-              componentInputParameter: project_id
-        taskInfo:
-          name: Load data from BigQuery
-      load-schema:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-load-schema
-        inputs:
-          parameters:
-            repo_root:
-              runtimeValue:
-                constant: /Users/shlba/Desktop/Docs/Study/code/ml_pipelines_kfp
-        taskInfo:
-          name: Load schema relevant to model
-      random-forest:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-random-forest
-        dependentTasks:
-        - load-data
-        inputs:
-          artifacts:
-            train_dataset:
-              taskOutputArtifact:
-                outputArtifactKey: train_dataset
-                producerTask: load-data
-        taskInfo:
-          name: Random Forest
-      upload-model:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-upload-model
-        dependentTasks:
-        - choose-best-model
-        - load-schema
-        inputs:
-          artifacts:
-            model:
-              taskOutputArtifact:
-                outputArtifactKey: best_model
-                producerTask: choose-best-model
-            schema:
-              taskOutputArtifact:
-                outputArtifactKey: gcs_schema
-                producerTask: load-schema
-          parameters:
-            image_name:
-              runtimeValue:
-                constant: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main
+            bq_table_predictions:
+              componentInputParameter: bq_table_predictions
             location:
               componentInputParameter: location
-            model_name:
-              runtimeValue:
-                constant: Iris-Classifier-XGBoost
             project_id:
               componentInputParameter: project_id
         taskInfo:
-          name: Register Model
+          name: Inference Model
   inputDefinitions:
     parameters:
       bq_dataset:
         parameterType: STRING
       bq_table:
+        parameterType: STRING
+      bq_table_predictions:
         parameterType: STRING
       location:
         parameterType: STRING
