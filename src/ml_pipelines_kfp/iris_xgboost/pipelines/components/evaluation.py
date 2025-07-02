@@ -46,8 +46,10 @@ def choose_best_model(
     with fs.open(model_uri, "wb") as f:
         if rf_accuracy >= dt_accuracy:
            joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)
+           print(f"Selected Random Forest model with accuracy: {rf_accuracy}")
         else:
-           joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)
+           joblib.dump(dt, f, protocol=pickle.HIGHEST_PROTOCOL)
+           print(f"Selected Decision Tree model with accuracy: {dt_accuracy}")
         
 
     # if rf_accuracy >= dt_accuracy:

@@ -28,14 +28,14 @@ def init_model():
     model_uri = f'{os.environ["AIP_STORAGE_URI"]}/{MODEL_FILENAME}'
     log.info(f"Loading model from {model_uri}")
     with fsspec.open(model_uri, "rb") as f:
-        MODELS["Iris_Xgboost"] = joblib.load(f)
+        MODELS["best_model"] = joblib.load(f)
 
     log.info("Model loaded")
 
 
 def build_app() -> FastAPI:
     return FastAPI(
-        title="Iris XGBoost Model",
+        title="Iris Model",
         on_startup=[init_model],
     )
 
@@ -59,9 +59,9 @@ async def live():
 
 @app.post("/predict")
 async def predict(request: PredictRequest) -> PredictResponse:
-    df = pd.DataFrame(i.dict() for i in request.instances)
+    df = pd.DataFrame(i.model_dump() for i in request.instances)
 
-    model = MODELS["Iris_Xgboost"]
+    model = MODELS["best_model"]
     classes = model.predict(df).tolist()
     class_probabilities_list = model.predict_proba(df).tolist()
 

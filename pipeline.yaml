@@ -254,9 +254,9 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
-          \ 'pandas==2.0.0' 'scikit-learn==1.5.1' 'numpy==1.23.0' 'joblib==1.4.2'\
-          \ && \"$0\" \"$@\"\n"
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform>=1.59.0'\
+          \ 'pandas>=2.2.2' 'scikit-learn>=1.5.1' 'numpy>=2.0.0' 'joblib>=1.4.2' &&\
+          \ \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -464,8 +464,8 @@ deploymentSpec:
           \n    if results:\n        parent_model = results[0]\n    else:\n      \
           \  parent_model = None\n\n    # Set up container spec\n    container_spec\
           \ = aiplatform_v1.types.model.ModelContainerSpec(\n        image_uri=image_name,\n\
-          \        args=[\"uvicorn\", \"src.iris_xgboost.server:app\", \"--host\"\
-          , \"0.0.0.0\", \"--port\", \"8080\"],\n        ports=[{\"container_port\"\
+          \        args=[\"uvicorn\", \"src.ml_pipelines_kfp.iris_xgboost.server:app\"\
+          , \"--host\", \"0.0.0.0\", \"--port\", \"8080\"],\n        ports=[{\"container_port\"\
           : 8080}],\n        predict_route=\"/predict\",\n        health_route=\"\
           /health/live\"\n    )\n\n    # Set up instance and prediction schema files\n\
           \    artifact_uri = schema.path.replace(\"/gcs/\", \"gs://\")\n    instance_schema_filename\

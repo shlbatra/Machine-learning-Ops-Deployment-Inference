@@ -15,6 +15,7 @@ def inference_model(
     location: str,
     bq_dataset: str,
     bq_table: str,
+    bq_table_predictions: str,
     model: Input[Model],
 ):
     import joblib
@@ -36,7 +37,7 @@ def inference_model(
 
     df = pd.concat(dfs, ignore_index=True)
     print("Model Path: f{model.path}")
-    inf_model = joblib.load(model.path+'/model.pkl')
+    inf_model = joblib.load(model.path+'/model.joblib')
     inf_pred = inf_model.predict(df)
     print(len(inf_pred))
     print(inf_pred[:5])
@@ -48,7 +49,7 @@ def inference_model(
     predictions_df['model_path'] = model.path
     
     # Write predictions to BigQuery
-    predictions_table_id = f"{project_id}.{bq_dataset}.predictions"
+    predictions_table_id = f"{project_id}.{bq_dataset}.{bq_table_predictions}"
     
     job_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_APPEND",
