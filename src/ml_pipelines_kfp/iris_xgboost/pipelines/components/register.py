@@ -41,7 +41,7 @@ def upload_model(
     # Set up container spec
     container_spec = aiplatform_v1.types.model.ModelContainerSpec(
         image_uri=image_name,
-        args=["uvicorn", "src.iris_xgboost.server:app", "--host", "0.0.0.0", "--port", "8080"],
+        args=["uvicorn", "src.ml_pipelines_kfp.iris_xgboost.server:app", "--host", "0.0.0.0", "--port", "8080"],
         ports=[{"container_port": 8080}],
         predict_route="/predict",
         health_route="/health/live"

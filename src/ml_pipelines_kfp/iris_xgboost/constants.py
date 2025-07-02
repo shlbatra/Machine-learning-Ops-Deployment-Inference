@@ -15,8 +15,9 @@ SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
 MODEL_NAME = "Iris-Classifier-XGBoost"
 ENDPOINT_NAME = "Iris-Classifier-XGBoost"
 IMAGE_NAME = "us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main"
-
+MODEL_FILENAME = "model.joblib"
 
 # BigQuery settings
 BQ_DATASET = "ml_dataset"
 BQ_TABLE = "iris"
+BQ_TABLE_PREDICTIONS = "iris_predictions"

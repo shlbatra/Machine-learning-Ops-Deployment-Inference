@@ -21,6 +21,7 @@ def inference_model(
     import pandas as pd
     import numpy as np
     from google.cloud import bigquery
+    from datetime import datetime
 
     client = bigquery.Client()
 
@@ -39,3 +40,24 @@ def inference_model(
     inf_pred = inf_model.predict(df)
     print(len(inf_pred))
     print(inf_pred[:5])
+    
+    # Create predictions dataframe
+    predictions_df = df.copy()
+    predictions_df['prediction'] = inf_pred
+    predictions_df['prediction_timestamp'] = datetime.now()
+    predictions_df['model_path'] = model.path
+    
+    # Write predictions to BigQuery
+    predictions_table_id = f"{project_id}.{bq_dataset}.predictions"
+    
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND",
+        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+    )
+    
+    job = client.load_table_from_dataframe(
+        predictions_df, predictions_table_id, job_config=job_config
+    )
+    job.result()  # Wait for the job to complete
+    
+    print(f"Loaded {len(predictions_df)} rows to {predictions_table_id}")

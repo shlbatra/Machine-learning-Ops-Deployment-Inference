@@ -2,14 +2,8 @@ import sys
 import kfp
 import google.cloud.aiplatform as aip
 
-# Project settings
-BUCKET = "gs://sb-vertex"
-PIPELINE_NAME = "pipeline-iris"
-PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-central1"
-PROJECT_ID = "deeplearning-sahil"
-SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
-MODEL_NAME = "Iris-Classifier-XGBoost"
+from ml_pipelines_kfp.iris_xgboost.constants import (
+    PIPELINE_NAME, PIPELINE_ROOT, MODEL_NAME, PROJECT_ID, REGION, SERVICE_ACCOUNT, BQ_DATASET, BQ_TABLE, BQ_TABLE_PREDICTIONS)
 
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
@@ -31,8 +25,9 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         project_id=PROJECT_ID,
         location=REGION,
         model=get_model_op.outputs["latest_model"],
-        bq_dataset="ml_dataset",
-        bq_table="iris_inference"
+        bq_dataset=BQ_DATASET,
+        bq_table=BQ_TABLE,
+        bq_table_predictions=BQ_TABLE_PREDICTIONS
     ).set_display_name("Inference Model").after(get_model_op)
 
 if __name__ == "__main__":
@@ -50,8 +45,9 @@ if __name__ == "__main__":
         pipeline_root=PIPELINE_ROOT,
         enable_caching=False,
         parameter_values={
-            "bq_dataset":"ml_dataset",
-            "bq_table":"iris",
+            "bq_dataset":BQ_DATASET,
+            "bq_table":BQ_TABLE,
+            "bq_table_predictions":BQ_TABLE_PREDICTIONS,
             "location":REGION,
             "project_id":PROJECT_ID
         }

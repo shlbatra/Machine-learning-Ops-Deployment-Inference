@@ -13,9 +13,9 @@ import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from src.iris_xgboost.constants import MODEL_FILENAME
-from src.iris_xgboost.models.instance import Instance
-from src.iris_xgboost.models.prediction import Prediction
+from src.ml_pipelines_kfp.iris_xgboost.constants import MODEL_FILENAME
+from src.ml_pipelines_kfp.iris_xgboost.models.instance import Instance
+from src.ml_pipelines_kfp.iris_xgboost.models.prediction import Prediction
 
 log = getLogger()
 log.setLevel(os.getenv("LOG_LEVEL", "INFO"))
