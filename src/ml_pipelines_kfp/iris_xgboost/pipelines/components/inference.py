@@ -36,7 +36,8 @@ def inference_model(
         dfs.append(row)
 
     df = pd.concat(dfs, ignore_index=True)
-    print("Model Path: f{model.path}")
+    df = df.drop(columns=['species'])
+    print(f"Model Path: {model.path}")
     inf_model = joblib.load(model.path+'/model.joblib')
     inf_pred = inf_model.predict(df)
     print(len(inf_pred))
