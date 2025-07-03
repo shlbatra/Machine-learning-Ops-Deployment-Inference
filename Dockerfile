@@ -28,3 +28,6 @@ ARG BUILD_BRANCH="main"
 
 ENV BUILD_COMMIT=${BUILD_COMMIT} \
     BUILD_BRANCH=${BUILD_BRANCH}
+
+# Ensure the virtual environment is activated and start the server
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "src.ml_pipelines_kfp.iris_xgboost.server:app", "--host", "0.0.0.0", "--port", "8080"]

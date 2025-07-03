@@ -36,7 +36,9 @@ def inference_model(
         dfs.append(row)
 
     df = pd.concat(dfs, ignore_index=True)
-    df = df.drop(columns=['species'])
+    print(df.head())
+    print(df.columns)
+    df = df.drop(columns=['Species'], axis=1)
     print(f"Model Path: {model.path}")
     inf_model = joblib.load(model.path+'/model.joblib')
     inf_pred = inf_model.predict(df)
@@ -48,12 +50,22 @@ def inference_model(
     predictions_df['prediction'] = inf_pred
     predictions_df['prediction_timestamp'] = datetime.now()
     predictions_df['model_path'] = model.path
-    
+    print(len(predictions_df))
     # Write predictions to BigQuery
     predictions_table_id = f"{project_id}.{bq_dataset}.{bq_table_predictions}"
-    
+    print(predictions_table_id)
+
+    try:
+        client.get_table(table_ref)
+        # Table exists, use WRITE_APPEND
+        write_disposition = "WRITE_APPEND"
+    except:
+        # Table doesn't exist, use WRITE_TRUNCATE to create it
+        write_disposition = "WRITE_TRUNCATE"
+
+    print(write_disposition)
     job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_APPEND",
+        write_disposition=write_disposition,
         schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
     

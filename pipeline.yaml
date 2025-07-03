@@ -128,15 +128,20 @@ deploymentSpec:
           \ = bigquery.DatasetReference(project_id, bq_dataset)\n    table_ref = dataset_ref.table(bq_table)\n\
           \    table = bigquery.Table(table_ref)\n    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\
           \n    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
-          \n    df = pd.concat(dfs, ignore_index=True)\n    df = df.drop(columns=['species'])\n\
-          \    print(f\"Model Path: {model.path}\")\n    inf_model = joblib.load(model.path+'/model.joblib')\n\
+          \n    df = pd.concat(dfs, ignore_index=True)\n    print(df.head())\n   \
+          \ print(df.columns)\n    df = df.drop(columns=['Species'], axis=1)\n   \
+          \ print(f\"Model Path: {model.path}\")\n    inf_model = joblib.load(model.path+'/model.joblib')\n\
           \    inf_pred = inf_model.predict(df)\n    print(len(inf_pred))\n    print(inf_pred[:5])\n\
           \n    # Create predictions dataframe\n    predictions_df = df.copy()\n \
           \   predictions_df['prediction'] = inf_pred\n    predictions_df['prediction_timestamp']\
-          \ = datetime.now()\n    predictions_df['model_path'] = model.path\n\n  \
-          \  # Write predictions to BigQuery\n    predictions_table_id = f\"{project_id}.{bq_dataset}.{bq_table_predictions}\"\
-          \n\n    job_config = bigquery.LoadJobConfig(\n        write_disposition=\"\
-          WRITE_APPEND\",\n        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],\n\
+          \ = datetime.now()\n    predictions_df['model_path'] = model.path\n    print(len(predictions_df))\n\
+          \    # Write predictions to BigQuery\n    predictions_table_id = f\"{project_id}.{bq_dataset}.{bq_table_predictions}\"\
+          \n    print(predictions_table_id)\n\n    try:\n        client.get_table(table_ref)\n\
+          \        # Table exists, use WRITE_APPEND\n        write_disposition = \"\
+          WRITE_APPEND\"\n    except:\n        # Table doesn't exist, use WRITE_TRUNCATE\
+          \ to create it\n        write_disposition = \"WRITE_TRUNCATE\"\n\n    print(write_disposition)\n\
+          \    job_config = bigquery.LoadJobConfig(\n        write_disposition=write_disposition,\n\
+          \        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],\n\
           \    )\n\n    job = client.load_table_from_dataframe(\n        predictions_df,\
           \ predictions_table_id, job_config=job_config\n    )\n    job.result() \
           \ # Wait for the job to complete\n\n    print(f\"Loaded {len(predictions_df)}\
