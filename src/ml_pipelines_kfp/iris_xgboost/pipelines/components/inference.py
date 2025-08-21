@@ -55,18 +55,18 @@ def inference_model(
     predictions_table_id = f"{project_id}.{bq_dataset}.{bq_table_predictions}"
     print(predictions_table_id)
 
-    try:
-        client.get_table(table_ref)
-        # Table exists, use WRITE_APPEND
-        write_disposition = "WRITE_APPEND"
-    except:
-        # Table doesn't exist, use WRITE_TRUNCATE to create it
-        write_disposition = "WRITE_TRUNCATE"
+    # try:
+    #     client.get_table(table_ref)
+    #     # Table exists, use WRITE_APPEND
+    #     write_disposition = "WRITE_APPEND"
+    # except:
+    #     # Table doesn't exist, use WRITE_TRUNCATE to create it
+    #     write_disposition = "WRITE_TRUNCATE"
+    #print(write_disposition)
 
-    print(write_disposition)
     job_config = bigquery.LoadJobConfig(
-        write_disposition=write_disposition,
-        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+        write_disposition="WRITE_TRUNCATE"
+        #schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
     
     job = client.load_table_from_dataframe(
