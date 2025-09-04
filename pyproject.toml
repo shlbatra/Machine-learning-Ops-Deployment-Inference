@@ -51,7 +51,8 @@ dependencies = [
     "gcsfs>=2024.6.1",
     "jupyter>=1.0.0",
     "ipykernel>=6.29.5",
-    "kfp>=2.8.0"
+    "kfp>=2.8.0",
+    "kafka-python>=2.0.2"
 ]
 
 [build-system]
