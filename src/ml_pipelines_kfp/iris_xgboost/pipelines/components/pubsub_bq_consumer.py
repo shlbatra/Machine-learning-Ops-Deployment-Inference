@@ -24,7 +24,8 @@ def pubsub_data_source(
             "numpy==1.24.3",
             "pandas==2.0.3",
             "pyarrow==12.0.1",
-            "google-auth==2.23.3"
+            "google-auth==2.23.3",
+            "db-dtypes==1.1.1"
         ]
     )
     def pubsub_consumer_op(
@@ -49,7 +50,7 @@ def pubsub_data_source(
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
         
-        # Initialize clients
+        # Initialize clients with explicit project ID
         subscriber = pubsub_v1.SubscriberClient()
         bq_client = bigquery.Client(project=project_id)
         
@@ -80,10 +81,10 @@ def pubsub_data_source(
         
         # Create BigQuery table if it doesn't exist
         schema = [
-            bigquery.SchemaField("SepalLengthCm", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("SepalWidthCm", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("PetalLengthCm", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("PetalWidthCm", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("sepal_length", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("sepal_width", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("petal_length", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("petal_width", "FLOAT", mode="REQUIRED"),
             bigquery.SchemaField("timestamp", "TIMESTAMP", mode="REQUIRED"),
             bigquery.SchemaField("sample_id", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("ingestion_time", "TIMESTAMP", mode="REQUIRED"),
@@ -108,12 +109,12 @@ def pubsub_data_source(
                 # Parse message data
                 data = json.loads(message.data.decode('utf-8'))
                 
-                # Transform column names to match inference component expectations
+                # Keep snake_case column names to match table schema
                 transformed_data = {
-                    'SepalLengthCm': data.get('sepal_length'),
-                    'SepalWidthCm': data.get('sepal_width'), 
-                    'PetalLengthCm': data.get('petal_length'),
-                    'PetalWidthCm': data.get('petal_width'),
+                    'sepal_length': data.get('sepal_length'),
+                    'sepal_width': data.get('sepal_width'), 
+                    'petal_length': data.get('petal_length'),
+                    'petal_width': data.get('petal_width'),
                     'timestamp': data.get('timestamp'),
                     'sample_id': data.get('sample_id'),
                     'ingestion_time': datetime.utcnow().isoformat(),

@@ -8,7 +8,8 @@ from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
         "scikit-learn==1.5.1",
         "joblib==1.4.2",
         "google-cloud-bigquery==3.11.4",
-        "pyarrow==12.0.1"
+        "pyarrow==12.0.1",
+        "db-dtypes==1.1.1"
     ],
 )
 def inference_model(
@@ -25,7 +26,7 @@ def inference_model(
     from google.cloud import bigquery
     from datetime import datetime
 
-    client = bigquery.Client()
+    client = bigquery.Client(project=project_id)
 
     dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)
     table_ref = dataset_ref.table(bq_table)
@@ -40,9 +41,10 @@ def inference_model(
     print(df.head())
     print(df.columns)
 
-    df_cols = df[['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']]
-    # if 'Species' in df.columns:
-    #   df = df.drop(columns=['Species'], axis=1)
+    if bq_table == 'iris_pubsub_data':
+        df_cols = df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']].rename(columns={'sepal_length': 'SepalLengthCm', 'sepal_width': 'SepalWidthCm', 'petal_length': 'PetalLengthCm', 'petal_width': 'PetalWidthCm'})
+    else:
+        df_cols = df[['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']]
 
     print(f"Model Path: {model.path}")
     inf_model = joblib.load(model.path+'/model.joblib')

@@ -108,7 +108,7 @@ deploymentSpec:
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.24.3'\
           \ 'pandas==2.0.3' 'scikit-learn==1.5.1' 'joblib==1.4.2' 'google-cloud-bigquery==3.11.4'\
-          \ 'pyarrow==12.0.1' && \"$0\" \"$@\"\n"
+          \ 'pyarrow==12.0.1' 'db-dtypes==1.1.1' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -124,19 +124,21 @@ deploymentSpec:
           \    bq_dataset: str,\n    bq_table: str,\n    bq_table_predictions: str,\n\
           \    model: Input[Model],\n):\n    import joblib\n    import pandas as pd\n\
           \    import numpy as np\n    from google.cloud import bigquery\n    from\
-          \ datetime import datetime\n\n    client = bigquery.Client()\n\n    dataset_ref\
-          \ = bigquery.DatasetReference(project_id, bq_dataset)\n    table_ref = dataset_ref.table(bq_table)\n\
-          \    table = bigquery.Table(table_ref)\n    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\
-          \n    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
+          \ datetime import datetime\n\n    client = bigquery.Client(project=project_id)\n\
+          \n    dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)\n\
+          \    table_ref = dataset_ref.table(bq_table)\n    table = bigquery.Table(table_ref)\n\
+          \    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\n\
+          \    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
           \n    df = pd.concat(dfs, ignore_index=True)\n    print(df.head())\n   \
-          \ print(df.columns)\n\n    df_cols = df[['SepalLengthCm', 'SepalWidthCm',\
-          \ 'PetalLengthCm', 'PetalWidthCm']]\n    # if 'Species' in df.columns:\n\
-          \    #   df = df.drop(columns=['Species'], axis=1)\n\n    print(f\"Model\
-          \ Path: {model.path}\")\n    inf_model = joblib.load(model.path+'/model.joblib')\n\
-          \    inf_pred = inf_model.predict(df_cols)\n    print(len(inf_pred))\n \
-          \   print(inf_pred[:5])\n\n    # Create predictions dataframe\n    predictions_df\
-          \ = df.copy()\n    predictions_df['prediction'] = inf_pred\n    predictions_df['prediction_timestamp']\
-          \ = datetime.now()\n    predictions_df['model_path'] = model.path\n    print(len(predictions_df))\n\
+          \ print(df.columns)\n\n    if bq_table == 'iris_pubsub_data':\n        df_cols\
+          \ = df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']]\n\
+          \    else:\n        df_cols = df[['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm',\
+          \ 'PetalWidthCm']]\n\n    print(f\"Model Path: {model.path}\")\n    inf_model\
+          \ = joblib.load(model.path+'/model.joblib')\n    inf_pred = inf_model.predict(df_cols)\n\
+          \    print(len(inf_pred))\n    print(inf_pred[:5])\n\n    # Create predictions\
+          \ dataframe\n    predictions_df = df.copy()\n    predictions_df['prediction']\
+          \ = inf_pred\n    predictions_df['prediction_timestamp'] = datetime.now()\n\
+          \    predictions_df['model_path'] = model.path\n    print(len(predictions_df))\n\
           \    # Write predictions to BigQuery\n    predictions_table_id = f\"{project_id}.{bq_dataset}.{bq_table_predictions}\"\
           \n    print(predictions_table_id)\n\n    # try:\n    #     client.get_table(table_ref)\n\
           \    #     # Table exists, use WRITE_APPEND\n    #     write_disposition\
