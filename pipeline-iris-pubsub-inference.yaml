@@ -1,0 +1,384 @@
+# PIPELINE DEFINITION
+# Name: pipeline-iris-pubsub-inference
+# Inputs:
+#    batch_size: int [Default: 100.0]
+#    bq_dataset: str
+#    bq_table_predictions: str
+#    location: str
+#    project_id: str
+#    pubsub_subscription: str [Default: 'iris-inference-data-sub']
+#    pubsub_topic: str [Default: 'iris-inference-data']
+#    timeout_seconds: int [Default: 300.0]
+components:
+  comp-get-model:
+    executorLabel: exec-get-model
+    inputDefinitions:
+      parameters:
+        location:
+          parameterType: STRING
+        model_name:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        latest_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-inference-model:
+    executorLabel: exec-inference-model
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        bq_dataset:
+          parameterType: STRING
+        bq_table:
+          parameterType: STRING
+        bq_table_predictions:
+          parameterType: STRING
+        location:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+  comp-pubsub-consumer-op:
+    executorLabel: exec-pubsub-consumer-op
+    inputDefinitions:
+      parameters:
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        bq_dataset:
+          parameterType: STRING
+        bq_table:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        subscription_name:
+          parameterType: STRING
+        timeout_seconds:
+          parameterType: NUMBER_INTEGER
+        topic_name:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+defaultPipelineRoot: gs://sb-vertex/pipeline_root
+deploymentSpec:
+  executors:
+    exec-get-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - get_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform==1.64.0'\
+          \ 'fsspec==2024.6.1' 'gcsfs==2024.6.1' 'joblib==1.4.2' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef get_model(\n    project_id: str,\n    location: str,\n    model_name:\
+          \ str,\n    latest_model: Output[Model],\n):\n    from google.cloud import\
+          \ aiplatform, aiplatform_v1\n    import fsspec\n    import gcsfs\n    import\
+          \ joblib\n\n    aiplatform.init(project=project_id, location=location)\n\
+          \n\n    client = aiplatform_v1.ModelServiceClient(\n            client_options={\"\
+          api_endpoint\": f\"{location}-aiplatform.googleapis.com\"}\n    )\n\n  \
+          \  request = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
+          ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n    parent_models\
+          \ = list(client.list_models(request=request))\n    parent_model = parent_models[0]\
+          \ if parent_models else None\n\n    if not parent_model:\n        print(f\"\
+          Could not find model with f{model_name}\")\n        return\n\n    print(f\"\
+          Parent Model - {parent_model}\")\n    print(f\"class - {type(parent_model)}\"\
+          )\n    print(f\"name - {parent_model.name}\")\n    print(f\"model path-\
+          \ {parent_model.artifact_uri}\")\n    print(f\"output model path - {latest_model.path}\"\
+          )\n    latest_model_path = latest_model.path.replace(\"/gcs/\", \"gs://\"\
+          )\n    print(f\"output model path cleaned - {latest_model_path}\")\n   \
+          \ fs, _ = fsspec.core.url_to_fs(parent_model.artifact_uri)\n    print(f\"\
+          file system: {fs}\")\n    fs.copy(parent_model.artifact_uri+\"/\", latest_model.path.replace(\"\
+          /gcs/\", \"gs://\"), recursive=True)\n\n"
+        image: python:3.10
+    exec-inference-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - inference_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy==1.24.3'\
+          \ 'pandas==2.0.3' 'scikit-learn==1.5.1' 'joblib==1.4.2' 'google-cloud-bigquery==3.11.4'\
+          \ 'pyarrow==12.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef inference_model(\n    project_id: str,\n    location: str,\n\
+          \    bq_dataset: str,\n    bq_table: str,\n    bq_table_predictions: str,\n\
+          \    model: Input[Model],\n):\n    import joblib\n    import pandas as pd\n\
+          \    import numpy as np\n    from google.cloud import bigquery\n    from\
+          \ datetime import datetime\n\n    client = bigquery.Client()\n\n    dataset_ref\
+          \ = bigquery.DatasetReference(project_id, bq_dataset)\n    table_ref = dataset_ref.table(bq_table)\n\
+          \    table = bigquery.Table(table_ref)\n    iterable_table = client.list_rows(table).to_dataframe_iterable()\n\
+          \n    dfs = []\n    for row in iterable_table:\n        dfs.append(row)\n\
+          \n    df = pd.concat(dfs, ignore_index=True)\n    print(df.head())\n   \
+          \ print(df.columns)\n\n    df_cols = df[['SepalLengthCm', 'SepalWidthCm',\
+          \ 'PetalLengthCm', 'PetalWidthCm']]\n    # if 'Species' in df.columns:\n\
+          \    #   df = df.drop(columns=['Species'], axis=1)\n\n    print(f\"Model\
+          \ Path: {model.path}\")\n    inf_model = joblib.load(model.path+'/model.joblib')\n\
+          \    inf_pred = inf_model.predict(df_cols)\n    print(len(inf_pred))\n \
+          \   print(inf_pred[:5])\n\n    # Create predictions dataframe\n    predictions_df\
+          \ = df.copy()\n    predictions_df['prediction'] = inf_pred\n    predictions_df['prediction_timestamp']\
+          \ = datetime.now()\n    predictions_df['model_path'] = model.path\n    print(len(predictions_df))\n\
+          \    # Write predictions to BigQuery\n    predictions_table_id = f\"{project_id}.{bq_dataset}.{bq_table_predictions}\"\
+          \n    print(predictions_table_id)\n\n    # try:\n    #     client.get_table(table_ref)\n\
+          \    #     # Table exists, use WRITE_APPEND\n    #     write_disposition\
+          \ = \"WRITE_APPEND\"\n    # except:\n    #     # Table doesn't exist, use\
+          \ WRITE_TRUNCATE to create it\n    #     write_disposition = \"WRITE_TRUNCATE\"\
+          \n    #print(write_disposition)\n\n    job_config = bigquery.LoadJobConfig(\n\
+          \        write_disposition=\"WRITE_TRUNCATE\"\n        #schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],\n\
+          \    )\n\n    job = client.load_table_from_dataframe(\n        predictions_df,\
+          \ predictions_table_id, job_config=job_config\n    )\n    job.result() \
+          \ # Wait for the job to complete\n\n    print(f\"Loaded {len(predictions_df)}\
+          \ rows to {predictions_table_id}\")\n\n"
+        image: python:3.10
+    exec-pubsub-consumer-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - pubsub_consumer_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-pubsub==2.18.1'\
+          \ 'google-cloud-bigquery==3.11.4' 'numpy==1.24.3' 'pandas==2.0.3' 'pyarrow==12.0.1'\
+          \ 'google-auth==2.23.3' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef pubsub_consumer_op(\n    project_id: str,\n    topic_name: str,\n\
+          \    subscription_name: str,\n    bq_dataset: str,\n    bq_table: str,\n\
+          \    batch_size: int,\n    timeout_seconds: int,\n    dataset: dsl.Output[dsl.Dataset]\n\
+          ):\n    import json\n    import time\n    from datetime import datetime\n\
+          \    import logging\n    import pandas as pd\n    from google.cloud import\
+          \ pubsub_v1, bigquery\n    from google.cloud.exceptions import NotFound\n\
+          \    from concurrent.futures import ThreadPoolExecutor\n\n    logging.basicConfig(level=logging.INFO)\n\
+          \    logger = logging.getLogger(__name__)\n\n    # Initialize clients\n\
+          \    subscriber = pubsub_v1.SubscriberClient()\n    bq_client = bigquery.Client(project=project_id)\n\
+          \n    # Create subscription path\n    subscription_path = subscriber.subscription_path(project_id,\
+          \ subscription_name)\n    topic_path = subscriber.topic_path(project_id,\
+          \ topic_name)\n\n    # Create subscription if it doesn't exist\n    try:\n\
+          \        subscriber.get_subscription(request={\"subscription\": subscription_path})\n\
+          \        logger.info(f\"Subscription {subscription_path} already exists\"\
+          )\n    except Exception:\n        try:\n            subscriber.create_subscription(\n\
+          \                request={\n                    \"name\": subscription_path,\n\
+          \                    \"topic\": topic_path,\n                    \"ack_deadline_seconds\"\
+          : 60\n                }\n            )\n            logger.info(f\"Created\
+          \ subscription {subscription_path}\")\n        except Exception as e:\n\
+          \            logger.error(f\"Failed to create subscription: {e}\")\n   \
+          \         raise\n\n    # BigQuery setup\n    table_id = f\"{project_id}.{bq_dataset}.{bq_table}\"\
+          \n\n    # Create BigQuery table if it doesn't exist\n    schema = [\n  \
+          \      bigquery.SchemaField(\"SepalLengthCm\", \"FLOAT\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"SepalWidthCm\", \"FLOAT\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"PetalLengthCm\", \"FLOAT\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"PetalWidthCm\", \"FLOAT\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"timestamp\", \"TIMESTAMP\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"sample_id\", \"INTEGER\", mode=\"REQUIRED\"\
+          ),\n        bigquery.SchemaField(\"ingestion_time\", \"TIMESTAMP\", mode=\"\
+          REQUIRED\"),\n        bigquery.SchemaField(\"message_id\", \"STRING\", mode=\"\
+          REQUIRED\")\n    ]\n\n    try:\n        table = bq_client.get_table(table_id)\n\
+          \        logger.info(f\"Table {table_id} already exists\")\n    except NotFound:\n\
+          \        table = bigquery.Table(table_id, schema=schema)\n        table\
+          \ = bq_client.create_table(table)\n        logger.info(f\"Created table\
+          \ {table_id}\")\n\n    # Message processing\n    consumed_data = []\n  \
+          \  start_time = time.time()\n\n    def callback(message):\n        \"\"\"\
+          Process individual Pub/Sub message.\"\"\"\n        try:\n            # Parse\
+          \ message data\n            data = json.loads(message.data.decode('utf-8'))\n\
+          \n            # Transform column names to match inference component expectations\n\
+          \            transformed_data = {\n                'SepalLengthCm': data.get('sepal_length'),\n\
+          \                'SepalWidthCm': data.get('sepal_width'), \n           \
+          \     'PetalLengthCm': data.get('petal_length'),\n                'PetalWidthCm':\
+          \ data.get('petal_width'),\n                'timestamp': data.get('timestamp'),\n\
+          \                'sample_id': data.get('sample_id'),\n                'ingestion_time':\
+          \ datetime.utcnow().isoformat(),\n                'message_id': message.message_id\n\
+          \            }\n\n            consumed_data.append(transformed_data)\n\n\
+          \            logger.info(f\"Consumed message: {data['sample_id']} (ID: {message.message_id})\"\
+          )\n\n            # Acknowledge the message\n            message.ack()\n\n\
+          \        except Exception as e:\n            logger.error(f\"Error processing\
+          \ message: {e}\")\n            message.nack()\n\n    # Configure flow control\n\
+          \    flow_control = pubsub_v1.types.FlowControl(max_messages=batch_size\
+          \ * 2)\n\n    logger.info(f\"Starting Pub/Sub consumer for topic: {topic_name}\"\
+          )\n\n    try:\n        # Start pulling messages\n        streaming_pull_future\
+          \ = subscriber.subscribe(\n            subscription_path,\n            callback=callback,\n\
+          \            flow_control=flow_control\n        )\n\n        logger.info(f\"\
+          Listening for messages on {subscription_path}...\")\n\n        # Process\
+          \ messages until batch size or timeout\n        while len(consumed_data)\
+          \ < batch_size and (time.time() - start_time) < timeout_seconds:\n     \
+          \       time.sleep(1)  # Check every second\n\n        # Cancel the subscriber\n\
+          \        streaming_pull_future.cancel()\n\n        # Process collected data\n\
+          \        if consumed_data:\n            df = pd.DataFrame(consumed_data)\n\
+          \            df['timestamp'] = pd.to_datetime(df['timestamp'])\n       \
+          \     df['ingestion_time'] = pd.to_datetime(df['ingestion_time'])\n\n  \
+          \          # Load to BigQuery\n            job_config = bigquery.LoadJobConfig(\n\
+          \                write_disposition=\"WRITE_APPEND\",\n                schema=schema\n\
+          \            )\n\n            job = bq_client.load_table_from_dataframe(\n\
+          \                df, table_id, job_config=job_config\n            )\n  \
+          \          job.result()\n\n            logger.info(f\"Loaded {len(consumed_data)}\
+          \ records to BigQuery\")\n        else:\n            logger.warning(\"No\
+          \ messages received within timeout period\")\n\n    except Exception as\
+          \ e:\n        logger.error(f\"Error in Pub/Sub consumer: {e}\")\n      \
+          \  raise\n\n    finally:\n        logger.info(\"Pub/Sub consumer finished\"\
+          )\n\n    # Set output dataset metadata\n    dataset.uri = f\"bq://{table_id}\"\
+          \n    dataset.metadata = {\n        \"total_records\": len(consumed_data),\n\
+          \        \"table_id\": table_id,\n        \"topic\": topic_name,\n     \
+          \   \"subscription\": subscription_name\n    }\n\n"
+        image: python:3.10-slim
+pipelineInfo:
+  name: pipeline-iris-pubsub-inference
+root:
+  dag:
+    tasks:
+      get-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-get-model
+        inputs:
+          parameters:
+            location:
+              componentInputParameter: location
+            model_name:
+              runtimeValue:
+                constant: Iris-Classifier-XGBoost
+            project_id:
+              componentInputParameter: project_id
+        taskInfo:
+          name: Get Model
+      inference-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-inference-model
+        dependentTasks:
+        - get-model
+        - pubsub-consumer-op
+        inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: latest_model
+                producerTask: get-model
+          parameters:
+            bq_dataset:
+              componentInputParameter: bq_dataset
+            bq_table:
+              runtimeValue:
+                constant: iris_pubsub_data
+            bq_table_predictions:
+              componentInputParameter: bq_table_predictions
+            location:
+              componentInputParameter: location
+            project_id:
+              componentInputParameter: project_id
+        taskInfo:
+          name: Inference on Pub/Sub Data
+      pubsub-consumer-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-pubsub-consumer-op
+        inputs:
+          parameters:
+            batch_size:
+              componentInputParameter: batch_size
+            bq_dataset:
+              componentInputParameter: bq_dataset
+            bq_table:
+              runtimeValue:
+                constant: iris_pubsub_data
+            project_id:
+              componentInputParameter: project_id
+            subscription_name:
+              componentInputParameter: pubsub_subscription
+            timeout_seconds:
+              componentInputParameter: timeout_seconds
+            topic_name:
+              componentInputParameter: pubsub_topic
+        taskInfo:
+          name: Consume Pub/Sub Data
+  inputDefinitions:
+    parameters:
+      batch_size:
+        defaultValue: 100.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      bq_dataset:
+        parameterType: STRING
+      bq_table_predictions:
+        parameterType: STRING
+      location:
+        parameterType: STRING
+      project_id:
+        parameterType: STRING
+      pubsub_subscription:
+        defaultValue: iris-inference-data-sub
+        isOptional: true
+        parameterType: STRING
+      pubsub_topic:
+        defaultValue: iris-inference-data
+        isOptional: true
+        parameterType: STRING
+      timeout_seconds:
+        defaultValue: 300.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.13.0

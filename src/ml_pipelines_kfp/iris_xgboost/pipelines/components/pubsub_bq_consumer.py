@@ -17,10 +17,11 @@ def pubsub_data_source(
     """
     
     @dsl.component(
-        base_image="python:3.9-slim",
+        base_image="python:3.10-slim",
         packages_to_install=[
             "google-cloud-pubsub==2.18.1",
             "google-cloud-bigquery==3.11.4",
+            "numpy==1.24.3",
             "pandas==2.0.3",
             "pyarrow==12.0.1",
             "google-auth==2.23.3"
@@ -79,10 +80,10 @@ def pubsub_data_source(
         
         # Create BigQuery table if it doesn't exist
         schema = [
-            bigquery.SchemaField("sepal_length", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("sepal_width", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("petal_length", "FLOAT", mode="REQUIRED"),
-            bigquery.SchemaField("petal_width", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("SepalLengthCm", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("SepalWidthCm", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("PetalLengthCm", "FLOAT", mode="REQUIRED"),
+            bigquery.SchemaField("PetalWidthCm", "FLOAT", mode="REQUIRED"),
             bigquery.SchemaField("timestamp", "TIMESTAMP", mode="REQUIRED"),
             bigquery.SchemaField("sample_id", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("ingestion_time", "TIMESTAMP", mode="REQUIRED"),
@@ -107,11 +108,19 @@ def pubsub_data_source(
                 # Parse message data
                 data = json.loads(message.data.decode('utf-8'))
                 
-                # Add metadata
-                data['ingestion_time'] = datetime.utcnow().isoformat()
-                data['message_id'] = message.message_id
+                # Transform column names to match inference component expectations
+                transformed_data = {
+                    'SepalLengthCm': data.get('sepal_length'),
+                    'SepalWidthCm': data.get('sepal_width'), 
+                    'PetalLengthCm': data.get('petal_length'),
+                    'PetalWidthCm': data.get('petal_width'),
+                    'timestamp': data.get('timestamp'),
+                    'sample_id': data.get('sample_id'),
+                    'ingestion_time': datetime.utcnow().isoformat(),
+                    'message_id': message.message_id
+                }
                 
-                consumed_data.append(data)
+                consumed_data.append(transformed_data)
                 
                 logger.info(f"Consumed message: {data['sample_id']} (ID: {message.message_id})")
                 

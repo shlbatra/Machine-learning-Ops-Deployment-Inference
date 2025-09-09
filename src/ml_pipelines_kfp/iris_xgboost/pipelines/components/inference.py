@@ -3,11 +3,12 @@ from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
 
 @component(base_image="python:3.10", 
     packages_to_install=[
-        "pandas==2.0.0",
+        "numpy==1.24.3",
+        "pandas==2.0.3",
         "scikit-learn==1.5.1",
-        "numpy==1.23.0",
         "joblib==1.4.2",
-        "google-cloud-bigquery==2.34.3"
+        "google-cloud-bigquery==3.11.4",
+        "pyarrow==12.0.1"
     ],
 )
 def inference_model(
@@ -38,10 +39,14 @@ def inference_model(
     df = pd.concat(dfs, ignore_index=True)
     print(df.head())
     print(df.columns)
-    df = df.drop(columns=['Species'], axis=1)
+
+    df_cols = df[['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']]
+    # if 'Species' in df.columns:
+    #   df = df.drop(columns=['Species'], axis=1)
+
     print(f"Model Path: {model.path}")
     inf_model = joblib.load(model.path+'/model.joblib')
-    inf_pred = inf_model.predict(df)
+    inf_pred = inf_model.predict(df_cols)
     print(len(inf_pred))
     print(inf_pred[:5])
     
