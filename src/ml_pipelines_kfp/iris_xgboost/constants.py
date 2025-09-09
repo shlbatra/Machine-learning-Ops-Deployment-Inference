@@ -21,3 +21,8 @@ MODEL_FILENAME = "model.joblib"
 BQ_DATASET = "ml_dataset"
 BQ_TABLE = "iris"
 BQ_TABLE_PREDICTIONS = "iris_predictions"
+
+# Cloud Pub/Sub settings
+PUBSUB_TOPIC = "iris-inference-data"
+PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
+PUBSUB_REGION = REGION  # us-central1

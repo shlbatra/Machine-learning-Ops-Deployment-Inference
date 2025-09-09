@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class IrisDataProducer:
     def __init__(self, 
-                 kafka_servers: str = "localhost:9092",
+                 kafka_servers: str,
                  topic: str = "iris-inference-data",
                  batch_size: int = 10,
                  delay_seconds: float = 5.0):
@@ -22,13 +22,36 @@ class IrisDataProducer:
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
         
+        # Load GCP service account for SASL authentication
+        import base64
+        import os
+        from pathlib import Path
+        
+        # Path to service account key
+        key_path = Path(__file__).parent.parent.parent.parent / "deeplearning-sahil-e50332de6687.json"
+        
+        if key_path.exists():
+            with open(key_path, 'r') as f:
+                key_data = f.read()
+            sasl_password = base64.b64encode(key_data.encode()).decode()
+            sasl_username = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
+        else:
+            raise FileNotFoundError(f"Service account key not found at {key_path}")
+        
         self.producer = KafkaProducer(
             bootstrap_servers=kafka_servers,
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             key_serializer=lambda k: str(k).encode('utf-8') if k else None,
             retries=5,
             retry_backoff_ms=100,
-            request_timeout_ms=30000
+            request_timeout_ms=30000,
+            # SASL authentication for GCP Managed Kafka
+            security_protocol='SASL_SSL',
+            sasl_mechanism='PLAIN',
+            sasl_plain_username=sasl_username,
+            sasl_plain_password=sasl_password,
+            ssl_check_hostname=False,  # Disable for localhost tunnel
+            ssl_cafile=None  # Uses system CA certificates
         )
         
     def generate_iris_sample(self) -> Dict[str, Any]:
@@ -106,8 +129,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Generate random Iris data for Kafka')
-    parser.add_argument('--kafka-servers', default='localhost:9092', 
-                       help='Kafka bootstrap servers')
+    parser.add_argument('--kafka-servers', required=True,
+                       help='Kafka bootstrap servers (e.g., GCP Managed Kafka endpoint)')
     parser.add_argument('--topic', default='iris-inference-data',
                        help='Kafka topic name')
     parser.add_argument('--batch-size', type=int, default=10,

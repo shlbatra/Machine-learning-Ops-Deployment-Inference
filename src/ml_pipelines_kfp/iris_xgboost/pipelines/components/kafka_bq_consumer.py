@@ -22,7 +22,9 @@ def kafka_data_source(
             "kafka-python==2.0.2",
             "google-cloud-bigquery==3.11.4",
             "pandas==2.0.3",
-            "pyarrow==12.0.1"
+            "pyarrow==12.0.1",
+            "google-auth==2.23.3",
+            "google-cloud-secret-manager==2.16.4"
         ]
     )
     def kafka_consumer_op(
@@ -71,7 +73,23 @@ def kafka_data_source(
             table = bq_client.create_table(table)
             logger.info(f"Created table {table_id}")
         
-        # Initialize Kafka consumer
+        # Load GCP service account for SASL authentication
+        import base64
+        import os
+        from pathlib import Path
+        
+        # Path to service account key (adjust path for container environment)
+        key_path = "/gcp-sa-key/deeplearning-sahil-e50332de6687.json"  # Mounted in container
+        
+        if os.path.exists(key_path):
+            with open(key_path, 'r') as f:
+                key_data = f.read()
+            sasl_password = base64.b64encode(key_data.encode()).decode()
+            sasl_username = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
+        else:
+            raise FileNotFoundError(f"Service account key not found at {key_path}")
+        
+        # Initialize Kafka consumer with SASL authentication for GCP Managed Kafka
         consumer = KafkaConsumer(
             topic,
             bootstrap_servers=kafka_servers,
@@ -80,7 +98,14 @@ def kafka_data_source(
             auto_offset_reset='latest',
             enable_auto_commit=True,
             consumer_timeout_ms=timeout_seconds * 1000,
-            group_id=f"kfp-consumer-{int(time.time())}"
+            group_id=f"kfp-consumer-{int(time.time())}",
+            # SASL authentication for GCP Managed Kafka
+            security_protocol='SASL_SSL',
+            sasl_mechanism='PLAIN',
+            sasl_plain_username=sasl_username,
+            sasl_plain_password=sasl_password,
+            ssl_check_hostname=False,  # Disable for tunnel connections
+            ssl_cafile=None  # Uses system CA certificates
         )
         
         logger.info(f"Starting Kafka consumer for topic: {topic}")

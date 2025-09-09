@@ -53,6 +53,20 @@ pipeline.yaml               # Pipeline configuration
 - Service account with appropriate permissions
 - `uv` package manager (for dependency management)
 
+## Setup Kafka 
+
+- Setup Kafka infrastructure
+./scripts/setup_kafka.sh
+
+- Start data production
+docker-compose -f docker-compose.kafka.yml up iris-data-producer
+
+- Run the Kafka-enabled inference pipeline
+python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference_kafka.py
+
+- Monitor via Kafka UI
+Visit http://localhost:8080
+
 ## Installation
 
 ```bash
@@ -157,3 +171,13 @@ The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) 
 - **API Framework**: FastAPI
 - **Data Processing**: Pandas, Polars, Dask
 - **Package Management**: uv, Hatchling
+
+## Set up Pub Sub
+
+bash
+```
+gcloud auth application-default print-access-token
+export GOOGLE_APPLICATION_CREDENTIALS="./***.json"
+gcloud auth application-default print-access-token
+python test_pubsub.py
+```
