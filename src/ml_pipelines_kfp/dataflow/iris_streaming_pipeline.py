@@ -60,8 +60,8 @@ class ParsePubSubMessage(beam.DoFn):
 class CallVertexAIEndpoint(beam.DoFn):
     """Call Vertex AI model endpoint for inference."""
     
-    def __init__(self, project_id: str, region: str, endpoint_name: str):
-        self.project_id = project_id
+    def __init__(self, project: str, region: str, endpoint_name: str):
+        self.project = project
         self.region = region
         self.endpoint_name = endpoint_name
         self.client = None
@@ -69,7 +69,7 @@ class CallVertexAIEndpoint(beam.DoFn):
         
     def setup(self):
         """Initialize Vertex AI client."""
-        aiplatform.init(project=self.project_id, location=self.region)
+        aiplatform.init(project=self.project, location=self.region)
         
         # Get the endpoint
         endpoints = aiplatform.Endpoint.list(
@@ -77,8 +77,17 @@ class CallVertexAIEndpoint(beam.DoFn):
         )
         
         if endpoints:
-            self.endpoint = endpoints[0]
-            logging.info(f"Found endpoint: {self.endpoint.display_name}")
+            # If multiple endpoints exist with same name, prioritize by:
+            # 1. Most recently created (newest first)
+            # 2. Then by resource name (for consistency)
+            sorted_endpoints = sorted(
+                endpoints, 
+                key=lambda ep: (ep.create_time, ep.resource_name), 
+                reverse=True
+            )
+            
+            self.endpoint = sorted_endpoints[0]
+                
         else:
             raise RuntimeError(f"Endpoint '{self.endpoint_name}' not found")
     
@@ -102,6 +111,8 @@ class CallVertexAIEndpoint(beam.DoFn):
             
             # Extract prediction result
             prediction_result = predictions.predictions[0]
+
+            logging.info(f"Prediction result: {prediction_result}")
             
             # Handle different prediction formats
             if isinstance(prediction_result, list):
@@ -129,7 +140,7 @@ class CallVertexAIEndpoint(beam.DoFn):
                 'prediction': str(predicted_class),
                 'prediction_confidence': confidence,
                 'prediction_timestamp': datetime.utcnow().isoformat(),
-                'model_endpoint': f"{self.project_id}/{self.region}/{self.endpoint_name}",
+                'model_endpoint': f"{self.project}/{self.region}/{self.endpoint_name}",
                 'processing_time': processing_time
             }
             
@@ -183,24 +194,31 @@ def run_pipeline(argv=None):
     )
     parser.add_argument(
         '--project_id',
-        default=PROJECT_ID,
-        help='GCP Project ID'
+        required=True,
+        help='Project ID'
     )
     parser.add_argument(
         '--region',
-        default=REGION,
+        required=True,
         help='GCP Region'
     )
     parser.add_argument(
         '--endpoint_name',
-        default=ENDPOINT_NAME,
+        required=True,
         help='Vertex AI endpoint name'
     )
     
     known_args, pipeline_args = parser.parse_known_args(argv)
+    logging.info(f"Known args: {known_args}")
+    logging.info(f"Pipeline args: {pipeline_args}")
     
-    # Pipeline options
+    # Pipeline options - ensure project is set
     pipeline_options = PipelineOptions(pipeline_args)
+    
+    # Explicitly set the project for Dataflow
+    from apache_beam.options.pipeline_options import GoogleCloudOptions
+    google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
+    google_cloud_options.project = known_args.project_id
     
     # Create pipeline
     with beam.Pipeline(options=pipeline_options) as pipeline:

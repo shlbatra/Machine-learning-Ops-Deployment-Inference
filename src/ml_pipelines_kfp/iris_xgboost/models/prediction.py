@@ -10,5 +10,5 @@ class Prediction(BaseModel):
     class Config:
         allow_population_by_field_name = True
 
-    class_: int = Field(..., alias='class')
+    class_: int = Field(...)
     class_probabilities: List[float]

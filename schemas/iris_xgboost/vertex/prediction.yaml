@@ -1,12 +1,12 @@
 title: Prediction
 type: object
 properties:
-  class:
+  class_:
     type: integer
   class_probabilities:
     type: array
     items:
       type: number
 required:
-  - class
+  - class_
   - class_probabilities

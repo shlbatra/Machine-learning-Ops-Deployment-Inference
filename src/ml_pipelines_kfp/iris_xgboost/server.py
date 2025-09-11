@@ -25,10 +25,10 @@ MODELS = {}
 
 
 def init_model():
-    model_uri = f'{os.environ["AIP_STORAGE_URI"]}/{MODEL_FILENAME}'
-    log.info(f"Loading model from {model_uri}")
-    with fsspec.open(model_uri, "rb") as f:
-        MODELS["best_model"] = joblib.load(f)
+    # model_uri = f'{os.environ["AIP_STORAGE_URI"]}/{MODEL_FILENAME}'
+    # log.info(f"Loading model from {model_uri}")
+    # with fsspec.open(model_uri, "rb") as f:
+    #     MODELS["best_model"] = joblib.load(f)
 
     log.info("Model loaded")
 
@@ -60,11 +60,15 @@ async def live():
 @app.post("/predict")
 async def predict(request: PredictRequest) -> PredictResponse:
     df = pd.DataFrame(i.model_dump() for i in request.instances)
+    log.info(df.shape)
+    # model = MODELS["best_model"]
+    # classes = model.predict(df).tolist()
+    # class_probabilities_list = model.predict_proba(df).tolist()
 
-    model = MODELS["best_model"]
-    classes = model.predict(df).tolist()
-    class_probabilities_list = model.predict_proba(df).tolist()
+    # return PredictResponse(
+    #     predictions=[Prediction(class_=c, class_probabilities=cp) for c, cp in zip(classes, class_probabilities_list)]
+    # )
 
     return PredictResponse(
-        predictions=[Prediction(class_=c, class_probabilities=cp) for c, cp in zip(classes, class_probabilities_list)]
+        predictions=[Prediction(class_=0, class_probabilities=[0.1, 0.5, 0.4])]
     )
