@@ -16,7 +16,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.evaluation import choose_best_model
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.models import decision_tree, random_forest
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.register import upload_model
-    from ml_pipelines_kfp.iris_xgboost.pipelines.components.deploy import deploy_model
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.deploy import deploy_blessed_model_to_fastapi
 
     # Start pipeline definition
     data_op = load_data(
@@ -48,14 +48,12 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         image_name=IMAGE_NAME
     ).set_display_name("Register Model")
 
-    deploy_model_op = deploy_model(
+    deploy_model_op = deploy_blessed_model_to_fastapi(
         project_id=project_id,
         location=location,
-        model=choose_model_op.outputs["best_model"],
-        vertex_model = upload_model_op.outputs["vertex_model"],
-        endpoint_name=ENDPOINT_NAME,
-        model_name=MODEL_NAME
-    ).set_display_name("Deploy Model").after(upload_model_op)
+        model_name=MODEL_NAME,
+        service_name=f"{MODEL_NAME.lower().replace('_', '-')}-service"
+    ).set_display_name("Deploy Blessed Model to FastAPI").after(upload_model_op)
 
 
 if __name__ == "__main__":

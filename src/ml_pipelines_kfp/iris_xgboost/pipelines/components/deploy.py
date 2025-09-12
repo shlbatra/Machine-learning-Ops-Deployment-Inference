@@ -1,35 +1,36 @@
-from kfp.dsl import Input, Model, component, Artifact
-from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
+from kfp.dsl import Input, Model, component, Artifact, Output
+from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME, FASTAPI_IMAGE_NAME, BUCKET, PROJECT_ID
 
 @component(
     base_image=IMAGE_NAME, 
     packages_to_install=[
         "google-cloud-aiplatform>=1.59.0",
-        "pandas>=2.2.2",
-        "scikit-learn>=1.5.1",
-        "numpy>=2.0.0",
+        "google-cloud-run>=0.10.0",
+        "google-cloud-storage>=2.10.0",
+        "requests>=2.31.0",
         "joblib>=1.4.2"
     ]
 )
-def deploy_model(
+def deploy_blessed_model_to_fastapi(
     project_id: str,
     location: str,
-    model: Input[Model],
-    vertex_model: Input[Artifact],
-    endpoint_name: str,
-    model_name: str
+    model_name: str,
+    service_name: str,
+    service_endpoint: Output[Artifact]
 ):
-    from google.cloud import aiplatform, aiplatform_v1
-    import pandas
-    import numpy
+    from google.cloud import aiplatform, aiplatform_v1, run_v2, storage
     import joblib
+    import tempfile
+    import os
+    import requests
+    import time
 
-    print(f"Pandas version: {pandas.__version__}")
-    print(f"NumPy version: {numpy.__version__}")
-    print(f"Joblib version: {joblib.__version__}")
+    print(f"Starting FastAPI deployment for blessed model: {model_name}")
+    print(f"Service name: {service_name}")
 
+    # 1. Initialize Vertex AI and find blessed model
     aiplatform.init(project=project_id, location=location)
-
+    
     client = aiplatform_v1.ModelServiceClient(
         client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
     )
@@ -38,37 +39,187 @@ def deploy_model(
         "filter": f"display_name={model_name}"
     }
 
-    parent_models = list(client.list_models(request=request))
-    print(f"Parent models: {parent_models}")
-
-    parent_model = parent_models[0] if parent_models else None
-    if not parent_model:
-        raise ValueError("No parent model found with the specified name.")
-
-    model_name = parent_model.name.split('/')[-1]
-    model = aiplatform.Model(model_name=model_name)
-
-    print(f"Model type: {type(model)}")
-    print(f"Model details: {model}")
-
-    endpoint = aiplatform.Endpoint.create(display_name=endpoint_name)
-    print(f"Endpoint created: {endpoint}")
-
-    endpoint.deploy(
-        model=model,
-        machine_type="n1-standard-2",
-        traffic_percentage=100
-    )
-
-    print(f"Model deployed to endpoint {endpoint.display_name}")
-
-    print("Cleaning up legacy deployments with no traffic assigned...")
-    traffic_split = endpoint.traffic_split
-    for deployed_model in endpoint.list_models():
-        print(f"Checking deployed model: {deployed_model.id}@{deployed_model.model_version_id}")
-        if deployed_model.id not in traffic_split or traffic_split[deployed_model.id] == 0:
-            try:
-                endpoint.undeploy(deployed_model.id)
-                print(f"Successfully undeployed model {deployed_model.id}@{deployed_model.model_version_id}")
-            except Exception as e:
-                print(f"Failed to undeploy model {deployed_model.id}@{deployed_model.model_version_id}: {e}")
+    models = list(client.list_models(request=request))
+    blessed_model = None
+    
+    print(f"Found {len(models)} models with name {model_name}")
+    
+    for model in models:
+        print(f"Model: {model.name}, Aliases: {list(model.version_aliases)}")
+        if "blessed" in model.version_aliases:
+            blessed_model = model
+            break
+    
+    if not blessed_model:
+        raise ValueError(f"No blessed version found for model {model_name}. Available models: {[(m.name, list(m.version_aliases)) for m in models]}")
+        
+    print(f"Found blessed model: {blessed_model.name}")
+    print(f"Model URI: {blessed_model.artifact_uri}")
+    
+    # 2. Download joblib model from blessed version
+    gcs_uri = blessed_model.artifact_uri
+    if not gcs_uri.startswith('gs://'):
+        raise ValueError(f"Expected GCS URI, got: {gcs_uri}")
+    
+    bucket_name = gcs_uri.replace('gs://', '').split('/')[0]
+    model_path = '/'.join(gcs_uri.replace('gs://', '').split('/')[1:])
+    
+    print(f"Downloading model from gs://{bucket_name}/{model_path}")
+    
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    
+    # Download and validate the model
+    model_blob_path = f"{model_path}/model.joblib"
+    blob = bucket.blob(model_blob_path)
+    
+    if not blob.exists():
+        raise ValueError(f"Model file not found at gs://{bucket_name}/{model_blob_path}")
+    
+    with tempfile.NamedTemporaryFile(suffix='.joblib', delete=False) as temp_file:
+        blob.download_to_filename(temp_file.name)
+        local_model_path = temp_file.name
+    
+    print(f"Downloaded model to: {local_model_path}")
+    
+    # 3. Validate model can be loaded
+    try:
+        model_obj = joblib.load(local_model_path)
+        print(f"Model type: {type(model_obj)}")
+        print(f"Model validation successful")
+    except Exception as e:
+        os.unlink(local_model_path)
+        raise ValueError(f"Model validation failed: {e}")
+    
+    # 4. Copy model to standard deployment location
+    deployment_model_path = f"deployed-models/{service_name}/model.joblib"
+    deployment_blob = bucket.blob(deployment_model_path)
+    
+    print(f"Copying model to deployment location: gs://{bucket_name}/{deployment_model_path}")
+    deployment_blob.upload_from_filename(local_model_path)
+    
+    model_gcs_path = f"gs://{bucket_name}/{deployment_model_path}"
+    print(f"Model available at: {model_gcs_path}")
+    
+    # 5. Deploy to Cloud Run using pre-built generic image
+    print(f"Deploying to Cloud Run service: {service_name}")
+    
+    run_client = run_v2.ServicesClient()
+    
+    # Use pre-built generic FastAPI image from CI/CD
+    generic_image = FASTAPI_IMAGE_NAME
+    
+    service_config = {
+        "parent": f"projects/{project_id}/locations/{location}",
+        "service_id": service_name,
+        "service": {
+            "template": {
+                "containers": [{
+                    "image": generic_image,
+                    "ports": [{"container_port": 8080}],
+                    "resources": {
+                        "limits": {
+                            "memory": "2Gi",
+                            "cpu": "2"
+                        }
+                    },
+                    "env": [
+                        {"name": "PORT", "value": "8080"},
+                        {"name": "MODEL_GCS_PATH", "value": model_gcs_path},
+                        {"name": "MODEL_NAME", "value": model_name},
+                        {"name": "GOOGLE_CLOUD_PROJECT", "value": project_id}
+                    ]
+                }],
+                "scaling": {
+                    "min_instance_count": 0,
+                    "max_instance_count": 10
+                },
+                "service_account": f"kfp-mlops@{project_id}.iam.gserviceaccount.com"
+            },
+            "traffic": [{"percent": 100, "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"}]
+        }
+    }
+    
+    try:
+        # Check if service already exists
+        try:
+            existing_service = run_client.get_service(
+                name=f"projects/{project_id}/locations/{location}/services/{service_name}"
+            )
+            print(f"Service {service_name} already exists, updating...")
+            
+            # Update existing service
+            update_service = service_config["service"]
+            update_service["name"] = existing_service.name
+            
+            operation = run_client.update_service(service=update_service)
+            result = operation.result(timeout=600)
+            
+        except Exception as get_error:
+            print(f"Service doesn't exist, creating new one: {get_error}")
+            # Create new service
+            operation = run_client.create_service(request=service_config)
+            result = operation.result(timeout=600)
+        
+        service_url = result.uri
+        print(f"Service deployed successfully to: {service_url}")
+        
+        # 6. Test deployment
+        print("Testing deployment...")
+        time.sleep(30)  # Wait for service to be ready
+        
+        test_payload = {
+            "instances": [
+                {"sepal_length": 5.1, "sepal_width": 3.5, "petal_length": 1.4, "petal_width": 0.2}
+            ]
+        }
+        
+        try:
+            # Test health endpoint first
+            health_response = requests.get(f"{service_url}/health", timeout=30)
+            print(f"Health check status: {health_response.status_code}")
+            if health_response.status_code == 200:
+                print(f"Health check response: {health_response.json()}")
+            
+            # Test prediction endpoint
+            response = requests.post(
+                f"{service_url}/predict", 
+                json=test_payload,
+                timeout=30
+            )
+            if response.status_code == 200:
+                print("Deployment test successful!")
+                print(f"Prediction: {response.json()}")
+            else:
+                print(f"Prediction test failed: {response.status_code} - {response.text}")
+                
+        except Exception as test_e:
+            print(f"Test request failed: {test_e}")
+        
+        # 7. Set output artifact
+        service_endpoint.uri = service_url
+        service_endpoint.metadata = {
+            "service_name": service_name,
+            "model_version": blessed_model.version_id,
+            "model_name": model_name,
+            "deployment_type": "cloud_run_fastapi",
+            "model_gcs_path": model_gcs_path,
+            "image": generic_image
+        }
+        
+        print(f"Deployment completed successfully!")
+        print(f"Service URL: {service_url}")
+        print(f"Health check: {service_url}/health")
+        print(f"Prediction endpoint: {service_url}/predict")
+        print(f"Vertex AI compatible endpoint: {service_url}/v1/models/model:predict")
+        
+    except Exception as deploy_e:
+        print(f"Cloud Run deployment failed: {deploy_e}")
+        raise
+    finally:
+        # 8. Cleanup temporary file
+        try:
+            os.unlink(local_model_path)
+            print("Temporary model file cleaned up")
+        except Exception as cleanup_e:
+            print(f"Cleanup warning: {cleanup_e}")
