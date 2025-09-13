@@ -1,5 +1,5 @@
 from kfp.dsl import Input, Model, component, Artifact, Output
-from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME, FASTAPI_IMAGE_NAME, BUCKET, PROJECT_ID
+from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
 
 @component(
     base_image=IMAGE_NAME, 
@@ -8,7 +8,11 @@ from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME, FASTAPI_IMAGE_NA
         "google-cloud-run>=0.10.0",
         "google-cloud-storage>=2.10.0",
         "requests>=2.31.0",
-        "joblib>=1.4.2"
+        "joblib>=1.4.2",
+        "scikit-learn>=1.3.0",
+        "pandas>=2.0.0",
+        "numpy>=1.24.0",
+        "grpcio-status>=1.62.3"
     ]
 )
 def deploy_blessed_model_to_fastapi(
@@ -16,9 +20,15 @@ def deploy_blessed_model_to_fastapi(
     location: str,
     model_name: str,
     service_name: str,
+    fastapi_image_name: str,
     service_endpoint: Output[Artifact]
 ):
     from google.cloud import aiplatform, aiplatform_v1, run_v2, storage
+    from google.auth import default
+    from google.cloud.run_v2 import ServicesClient
+    from google.iam.v1 import iam_policy_pb2
+    from google.iam.v1.iam_policy_pb2 import SetIamPolicyRequest
+    from google.iam.v1 import policy_pb2
     import joblib
     import tempfile
     import os
@@ -28,30 +38,58 @@ def deploy_blessed_model_to_fastapi(
     print(f"Starting FastAPI deployment for blessed model: {model_name}")
     print(f"Service name: {service_name}")
 
-    # 1. Initialize Vertex AI and find blessed model
+    # 1. Initialize Vertex AI and get credentials
     aiplatform.init(project=project_id, location=location)
     
+    # Get default credentials
+    credentials, _ = default()
+    print(credentials)
+    
+    # Create client with explicit credentials
     client = aiplatform_v1.ModelServiceClient(
+        credentials=credentials,
         client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
     )
+
+    print(f"Searching for blessed model with name: {model_name}")
+    
+    # Use the high-level aiplatform library to list all model versions
+    # models = aiplatform.Model.list(filter=f"display_name={model_name}")
+    # blessed_model = None
+
     request = {
-        "parent": f"projects/{project_id}/locations/{location}",
-        "filter": f"display_name={model_name}"
-    }
+            "parent": f"projects/{project_id}/locations/{location}",
+            "filter": f"display_name={model_name}"
+        }
 
     models = list(client.list_models(request=request))
     blessed_model = None
     
-    print(f"Found {len(models)} models with name {model_name}")
+    print(f"Found {len(models)} model versions with name {model_name}")
     
-    for model in models:
-        print(f"Model: {model.name}, Aliases: {list(model.version_aliases)}")
-        if "blessed" in model.version_aliases:
-            blessed_model = model
+    # Search through all model versions (each item in models is already a version)
+    for parent_model in models:
+        print(f"Checking parent model: {parent_model.name}")
+        
+        # List all versions of this model
+        versions_request = {"name": parent_model.name}
+        versions = list(client.list_model_versions(request=versions_request))
+        
+        print(f"Found {len(versions)} versions for this model")
+        
+        for version in versions:
+            print(f"Version {version.version_id}: Aliases = {list(version.version_aliases)}")
+            if "blessed" in version.version_aliases:
+                blessed_model = version
+                print(f"Found blessed version: {version.version_id}")
+                break
+        
+        if blessed_model:
             break
     
     if not blessed_model:
-        raise ValueError(f"No blessed version found for model {model_name}. Available models: {[(m.name, list(m.version_aliases)) for m in models]}")
+        available_versions = [(m.resource_name, m.version_id, list(m.version_aliases)) for m in models]
+        raise ValueError(f"No blessed version found for model {model_name}. Available versions: {available_versions}")
         
     print(f"Found blessed model: {blessed_model.name}")
     print(f"Model URI: {blessed_model.artifact_uri}")
@@ -107,7 +145,7 @@ def deploy_blessed_model_to_fastapi(
     run_client = run_v2.ServicesClient()
     
     # Use pre-built generic FastAPI image from CI/CD
-    generic_image = FASTAPI_IMAGE_NAME
+    generic_image = fastapi_image_name
     
     service_config = {
         "parent": f"projects/{project_id}/locations/{location}",
@@ -124,7 +162,6 @@ def deploy_blessed_model_to_fastapi(
                         }
                     },
                     "env": [
-                        {"name": "PORT", "value": "8080"},
                         {"name": "MODEL_GCS_PATH", "value": model_gcs_path},
                         {"name": "MODEL_NAME", "value": model_name},
                         {"name": "GOOGLE_CLOUD_PROJECT", "value": project_id}
@@ -160,7 +197,24 @@ def deploy_blessed_model_to_fastapi(
             # Create new service
             operation = run_client.create_service(request=service_config)
             result = operation.result(timeout=600)
+            
         
+        run_client = ServicesClient()
+            
+        # Create policy to allow public access
+        policy = policy_pb2.Policy()
+        binding = policy_pb2.Binding()
+        binding.role = "roles/run.invoker"
+        binding.members.append("allUsers")
+        policy.bindings.append(binding)
+
+        # Apply the policy
+        iam_request = SetIamPolicyRequest(
+            resource=result.name,  # This should be the full resource name
+            policy=policy
+        )
+        run_client.set_iam_policy(request=iam_request)
+
         service_url = result.uri
         print(f"Service deployed successfully to: {service_url}")
         
@@ -170,7 +224,7 @@ def deploy_blessed_model_to_fastapi(
         
         test_payload = {
             "instances": [
-                {"sepal_length": 5.1, "sepal_width": 3.5, "petal_length": 1.4, "petal_width": 0.2}
+               {"SepalLengthCm": 5.1, "SepalWidthCm": 3.5, "PetalLengthCm": 1.4, "PetalWidthCm": 0.2}
             ]
         }
         

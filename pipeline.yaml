@@ -54,6 +54,8 @@ components:
     executorLabel: exec-deploy-blessed-model-to-fastapi
     inputDefinitions:
       parameters:
+        fastapi_image_name:
+          parameterType: STRING
         location:
           parameterType: STRING
         model_name:
@@ -255,7 +257,8 @@ deploymentSpec:
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform>=1.59.0'\
           \ 'google-cloud-run>=0.10.0' 'google-cloud-storage>=2.10.0' 'requests>=2.31.0'\
-          \ 'joblib>=1.4.2' && \"$0\" \"$@\"\n"
+          \ 'joblib>=1.4.2' 'scikit-learn>=1.3.0' 'pandas>=2.0.0' 'numpy>=1.24.0'\
+          \ && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -268,32 +271,48 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef deploy_blessed_model_to_fastapi(\n    project_id: str,\n    location:\
-          \ str,\n    model_name: str,\n    service_name: str,\n    service_endpoint:\
-          \ Output[Artifact]\n):\n    from google.cloud import aiplatform, aiplatform_v1,\
-          \ run_v2, storage\n    import joblib\n    import tempfile\n    import os\n\
+          \ str,\n    model_name: str,\n    service_name: str,\n    fastapi_image_name:\
+          \ str,\n    service_endpoint: Output[Artifact]\n):\n    from google.cloud\
+          \ import aiplatform, aiplatform_v1, run_v2, storage\n    from google.auth\
+          \ import default\n    import joblib\n    import tempfile\n    import os\n\
           \    import requests\n    import time\n\n    print(f\"Starting FastAPI deployment\
           \ for blessed model: {model_name}\")\n    print(f\"Service name: {service_name}\"\
-          )\n\n    # 1. Initialize Vertex AI and find blessed model\n    aiplatform.init(project=project_id,\
-          \ location=location)\n\n    client = aiplatform_v1.ModelServiceClient(\n\
+          )\n\n    # 1. Initialize Vertex AI and get credentials\n    aiplatform.init(project=project_id,\
+          \ location=location)\n\n    # Get default credentials\n    credentials,\
+          \ _ = default()\n    print(credentials)\n\n    # Create client with explicit\
+          \ credentials\n    client = aiplatform_v1.ModelServiceClient(\n        credentials=credentials,\n\
           \        client_options={\"api_endpoint\": f\"{location}-aiplatform.googleapis.com\"\
-          }\n    )\n    request = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
-          ,\n        \"filter\": f\"display_name={model_name}\"\n    }\n\n    models\
-          \ = list(client.list_models(request=request))\n    blessed_model = None\n\
-          \n    print(f\"Found {len(models)} models with name {model_name}\")\n\n\
-          \    for model in models:\n        print(f\"Model: {model.name}, Aliases:\
-          \ {list(model.version_aliases)}\")\n        if \"blessed\" in model.version_aliases:\n\
-          \            blessed_model = model\n            break\n\n    if not blessed_model:\n\
-          \        raise ValueError(f\"No blessed version found for model {model_name}.\
-          \ Available models: {[(m.name, list(m.version_aliases)) for m in models]}\"\
-          )\n\n    print(f\"Found blessed model: {blessed_model.name}\")\n    print(f\"\
-          Model URI: {blessed_model.artifact_uri}\")\n\n    # 2. Download joblib model\
-          \ from blessed version\n    gcs_uri = blessed_model.artifact_uri\n    if\
-          \ not gcs_uri.startswith('gs://'):\n        raise ValueError(f\"Expected\
-          \ GCS URI, got: {gcs_uri}\")\n\n    bucket_name = gcs_uri.replace('gs://',\
-          \ '').split('/')[0]\n    model_path = '/'.join(gcs_uri.replace('gs://',\
-          \ '').split('/')[1:])\n\n    print(f\"Downloading model from gs://{bucket_name}/{model_path}\"\
-          )\n\n    storage_client = storage.Client()\n    bucket = storage_client.bucket(bucket_name)\n\
-          \n    # Download and validate the model\n    model_blob_path = f\"{model_path}/model.joblib\"\
+          }\n    )\n\n    print(f\"Searching for blessed model with name: {model_name}\"\
+          )\n\n    # Use the high-level aiplatform library to list all model versions\n\
+          \    # models = aiplatform.Model.list(filter=f\"display_name={model_name}\"\
+          )\n    # blessed_model = None\n\n    request = {\n            \"parent\"\
+          : f\"projects/{project_id}/locations/{location}\",\n            \"filter\"\
+          : f\"display_name={model_name}\"\n        }\n\n    models = list(client.list_models(request=request))\n\
+          \    blessed_model = None\n\n    print(f\"Found {len(models)} model versions\
+          \ with name {model_name}\")\n\n    # Search through all model versions (each\
+          \ item in models is already a version)\n    for parent_model in models:\n\
+          \        print(f\"Checking parent model: {parent_model.name}\")\n\n    \
+          \    # List all versions of this model\n        versions_request = {\"name\"\
+          : parent_model.name}\n        versions = list(client.list_model_versions(request=versions_request))\n\
+          \n        print(f\"Found {len(versions)} versions for this model\")\n\n\
+          \        for version in versions:\n            print(f\"Version {version.version_id}:\
+          \ Aliases = {list(version.version_aliases)}\")\n            if \"blessed\"\
+          \ in version.version_aliases:\n                blessed_model = version\n\
+          \                print(f\"Found blessed version: {version.version_id}\"\
+          )\n                break\n\n        if blessed_model:\n            break\n\
+          \n    if not blessed_model:\n        available_versions = [(m.resource_name,\
+          \ m.version_id, list(m.version_aliases)) for m in models]\n        raise\
+          \ ValueError(f\"No blessed version found for model {model_name}. Available\
+          \ versions: {available_versions}\")\n\n    print(f\"Found blessed model:\
+          \ {blessed_model.name}\")\n    print(f\"Model URI: {blessed_model.artifact_uri}\"\
+          )\n\n    # 2. Download joblib model from blessed version\n    gcs_uri =\
+          \ blessed_model.artifact_uri\n    if not gcs_uri.startswith('gs://'):\n\
+          \        raise ValueError(f\"Expected GCS URI, got: {gcs_uri}\")\n\n   \
+          \ bucket_name = gcs_uri.replace('gs://', '').split('/')[0]\n    model_path\
+          \ = '/'.join(gcs_uri.replace('gs://', '').split('/')[1:])\n\n    print(f\"\
+          Downloading model from gs://{bucket_name}/{model_path}\")\n\n    storage_client\
+          \ = storage.Client()\n    bucket = storage_client.bucket(bucket_name)\n\n\
+          \    # Download and validate the model\n    model_blob_path = f\"{model_path}/model.joblib\"\
           \n    blob = bucket.blob(model_blob_path)\n\n    if not blob.exists():\n\
           \        raise ValueError(f\"Model file not found at gs://{bucket_name}/{model_blob_path}\"\
           )\n\n    with tempfile.NamedTemporaryFile(suffix='.joblib', delete=False)\
@@ -312,7 +331,7 @@ deploymentSpec:
           \ available at: {model_gcs_path}\")\n\n    # 5. Deploy to Cloud Run using\
           \ pre-built generic image\n    print(f\"Deploying to Cloud Run service:\
           \ {service_name}\")\n\n    run_client = run_v2.ServicesClient()\n\n    #\
-          \ Use pre-built generic FastAPI image from CI/CD\n    generic_image = FASTAPI_IMAGE_NAME\n\
+          \ Use pre-built generic FastAPI image from CI/CD\n    generic_image = fastapi_image_name\n\
           \n    service_config = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
           ,\n        \"service_id\": service_name,\n        \"service\": {\n     \
           \       \"template\": {\n                \"containers\": [{\n          \
@@ -624,6 +643,9 @@ root:
         - upload-model
         inputs:
           parameters:
+            fastapi_image_name:
+              runtimeValue:
+                constant: us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:latest
             location:
               componentInputParameter: location
             model_name:

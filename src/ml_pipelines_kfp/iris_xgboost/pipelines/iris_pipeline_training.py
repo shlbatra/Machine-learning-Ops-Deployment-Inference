@@ -5,7 +5,7 @@ import google.cloud.aiplatform as aip
 from google.oauth2 import service_account
 from ml_pipelines_kfp.iris_xgboost.constants import (
     PIPELINE_NAME, REPO_ROOT, PIPELINE_ROOT, MODEL_NAME, IMAGE_NAME, SERVICE_ACCOUNT_PATH,
-    PROJECT_ID, REGION, SERVICE_ACCOUNT, ENDPOINT_NAME, BQ_DATASET, BQ_TABLE)
+    PROJECT_ID, REGION, SERVICE_ACCOUNT, ENDPOINT_NAME, BQ_DATASET, BQ_TABLE, FASTAPI_IMAGE_NAME)
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
@@ -52,7 +52,8 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         project_id=project_id,
         location=location,
         model_name=MODEL_NAME,
-        service_name=f"{MODEL_NAME.lower().replace('_', '-')}-service"
+        service_name=f"{MODEL_NAME.lower().replace('_', '-')}-service",
+        fastapi_image_name=FASTAPI_IMAGE_NAME
     ).set_display_name("Deploy Blessed Model to FastAPI").after(upload_model_op)
 
 
