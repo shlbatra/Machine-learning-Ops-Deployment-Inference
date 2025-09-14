@@ -1,4 +1,4 @@
-# ML Pipelines with Kubeflow Pipelines (KFP)
+# End to end ML Pipeline with training, deployment and real time inference.
 
 A production-grade ML pipeline implementation using Kubeflow Pipelines (KFP) on Google Cloud Vertex AI. This project demonstrates MLOps best practices for automating end-to-end ML workflows.
 
