@@ -36,7 +36,9 @@ def upload_model_version(
     aip.init(project=project_id, location=location)
 
     def parent_model(display_name: str) -> Optional[str]:
-        models = aip.Model.list(filter=f"display_name={display_name}", project=project_id, location=location)
+        models = aip.Model.list(
+            filter=f"display_name={display_name}", project=project_id, location=location
+        )
         if len(models) == 0:
             return None
         elif len(models) == 1:
@@ -57,13 +59,19 @@ def upload_model_version(
         serving_container_environment_variables=serving_container_environment_variables,
     )
     aip_model.wait()
-    model.uri = f"https://{location}-aiplatform.googleapis.com/v1/" + aip_model.resource_name
+    model.uri = (
+        f"https://{location}-aiplatform.googleapis.com/v1/" + aip_model.resource_name
+    )
     model.metadata["resourceName"] = aip_model.resource_name
 
 
 @component(base_image=BASE_IMAGE)
 def copy_model(
-    project_id: str, location: str, destination_location: str, model: Input[Artifact], copied_model: Output[Artifact]
+    project_id: str,
+    location: str,
+    destination_location: str,
+    model: Input[Artifact],
+    copied_model: Output[Artifact],
 ):
     import google.cloud.aiplatform as aip  # noqa: F811
 
@@ -75,7 +83,9 @@ def copy_model(
     aip.init(project=project_id, location=location)
     model_to_copy = aip.Model(model.metadata["resourceName"])
     new_model = model_to_copy.copy(destination_location=destination_location)
-    copied_model.uri = f"https://{location}-aiplatform.googleapis.com/v1/" + new_model.resource_name
+    copied_model.uri = (
+        f"https://{location}-aiplatform.googleapis.com/v1/" + new_model.resource_name
+    )
     copied_model.metadata["resourceName"] = new_model.resource_name
 
 
@@ -92,9 +102,14 @@ def train_xgboost_model(
 ):
 
     from src.workflows.utils.models.xgboost import XGBoostTrainer
-    from src.workflows.utils.data_handling.pandas import PandasDataHandler, DatasetFeaturesConfig
+    from src.workflows.utils.data_handling.pandas import (
+        PandasDataHandler,
+        DatasetFeaturesConfig,
+    )
 
-    features_config = DatasetFeaturesConfig(features=features, categorical_features=categorical_features, target=target)
+    features_config = DatasetFeaturesConfig(
+        features=features, categorical_features=categorical_features, target=target
+    )
     data_handler = PandasDataHandler()
     data_handler.set_dataset_features_config(features_config)
 
@@ -139,9 +154,14 @@ def batch_predict_xgboost_model(
     target: str = "time_in_transit_days",
 ):
     from src.workflows.utils.models.xgboost import XGBoostTrainer
-    from src.workflows.utils.data_handling.pandas import PandasDataHandler, DatasetFeaturesConfig
+    from src.workflows.utils.data_handling.pandas import (
+        PandasDataHandler,
+        DatasetFeaturesConfig,
+    )
 
-    features_config = DatasetFeaturesConfig(features=features, categorical_features=categorical_features, target=target)
+    features_config = DatasetFeaturesConfig(
+        features=features, categorical_features=categorical_features, target=target
+    )
     data_handler = PandasDataHandler()
     data_handler.set_dataset_features_config(features_config)
 

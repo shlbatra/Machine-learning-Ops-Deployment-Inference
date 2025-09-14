@@ -30,11 +30,17 @@ def _local_git_revision() -> str:
     import subprocess
 
     try:
-        return subprocess.check_output(["/usr/bin/git", "rev-parse", "HEAD"]).decode().strip()  # noqa: S603
+        return (
+            subprocess.check_output(["/usr/bin/git", "rev-parse", "HEAD"])
+            .decode()
+            .strip()
+        )  # noqa: S603
     except subprocess.CalledProcessError as e:
         print(e.output)
         return os.environ.get("BUILDKITE_COMMIT", "main")
 
 
 GCR_IMAGE_TAG = _image_tag()
-BASE_IMAGE = f"gcr.io/shopify-docker-images/apps/ci/shop-promise-modeling:{GCR_IMAGE_TAG}"
+BASE_IMAGE = (
+    f"gcr.io/shopify-docker-images/apps/ci/shop-promise-modeling:{GCR_IMAGE_TAG}"
+)

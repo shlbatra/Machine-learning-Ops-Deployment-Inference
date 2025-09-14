@@ -40,7 +40,6 @@ src/ml_pipelines_kfp/
 ├── dataflow/               # Dataflow streaming pipelines
 │   └── iris_streaming_pipeline.py
 schemas/                    # Input/output schemas for Vertex AI
-memory-bank/                # Project context and documentation
 Dockerfile                  # Container definition
 pyproject.toml              # Project dependencies
 pipeline.yaml               # Pipeline configuration
@@ -57,19 +56,6 @@ deploy_dataflow_streaming.sh # Dataflow streaming deployment script
 - Service account with appropriate permissions
 - `uv` package manager (for dependency management)
 
-## Setup Kafka 
-
-- Setup Kafka infrastructure
-./scripts/setup_kafka.sh
-
-- Start data production
-docker-compose -f docker-compose.kafka.yml up iris-data-producer
-
-- Run the Kafka-enabled inference pipeline
-python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference_kafka.py
-
-- Monitor via Kafka UI
-Visit http://localhost:8080
 
 ## Installation
 
@@ -84,7 +70,7 @@ uv pip install -e .
 
 ## Usage
 
-### 1. Load Data to BigQuery
+### 1. Load Training Data to BigQuery
 
 ```bash
 # Set up credentials and load Iris dataset
@@ -105,7 +91,7 @@ This will:
 - Register the model in Vertex AI Model Registry with "blessed" alias
 - Deploy the blessed model to FastAPI service on Cloud Run
 
-### 3. Run Inference Pipeline
+### 3. Run Batch Inference Pipeline
 
 ```bash
 # Execute batch inference
@@ -125,14 +111,7 @@ Start generating test data:
 
 ```bash
 # Run data producer to send samples to Pub/Sub
-python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py --project-id deeplearning-sahil
-```
-
-### 5. Local API Server
-
-```bash
-# Run the FastAPI server locally
-uvicorn src.ml_pipelines_kfp.iris_xgboost.server:app --reload
+python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py
 ```
 
 ## Development
@@ -150,12 +129,6 @@ ruff check src/
 mypy src/
 ```
 
-### Docker
-
-```bash
-# Build image
-docker build -t ml-pipelines-kfp .
-```
 
 ## Architecture
 
@@ -179,7 +152,7 @@ Key configuration is managed in `src/ml_pipelines_kfp/iris_xgboost/constants.py`
 
 ## CI/CD
 
-The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) that:
+The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) when pushing to main branch that:
 - Builds Docker images for KFP components
 - Builds generic FastAPI inference containers
 - Pushes to Google Artifact Registry

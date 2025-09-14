@@ -28,7 +28,8 @@ def pipeline(
 
 def main():
     pipeline_config = get_base_pipeline_config(
-        pipeline_name="xgboost-training", pipeline_filename="xgboost_training_pipeline.json"
+        pipeline_name="xgboost-training",
+        pipeline_filename="xgboost_training_pipeline.json",
     )
 
     pipeline_parms = {
@@ -39,7 +40,9 @@ def main():
         "query_string": "SELECT * FROM `test` where mod(order_id, 30000) = 0",
     }
 
-    aip.init(project=pipeline_config.project_id, staging_bucket=pipeline_config.bucket_uri)
+    aip.init(
+        project=pipeline_config.project_id, staging_bucket=pipeline_config.bucket_uri
+    )
 
     compiler.Compiler().compile(
         pipeline_func=pipeline,

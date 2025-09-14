@@ -1,7 +1,8 @@
-
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
 
-@component(base_image="python:3.10", 
+
+@component(
+    base_image="python:3.10",
     packages_to_install=[
         "numpy==1.24.3",
         "pandas==2.0.3",
@@ -9,7 +10,7 @@ from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
         "joblib==1.4.2",
         "google-cloud-bigquery==3.11.4",
         "pyarrow==12.0.1",
-        "db-dtypes==1.1.1"
+        "db-dtypes==1.1.1",
     ],
 )
 def inference_model(
@@ -41,22 +42,31 @@ def inference_model(
     print(df.head())
     print(df.columns)
 
-    if bq_table == 'iris_pubsub_data':
-        df_cols = df[['sepal_length', 'sepal_width', 'petal_length', 'petal_width']].rename(columns={'sepal_length': 'SepalLengthCm', 'sepal_width': 'SepalWidthCm', 'petal_length': 'PetalLengthCm', 'petal_width': 'PetalWidthCm'})
+    if bq_table == "iris_pubsub_data":
+        df_cols = df[
+            ["sepal_length", "sepal_width", "petal_length", "petal_width"]
+        ].rename(
+            columns={
+                "sepal_length": "SepalLengthCm",
+                "sepal_width": "SepalWidthCm",
+                "petal_length": "PetalLengthCm",
+                "petal_width": "PetalWidthCm",
+            }
+        )
     else:
-        df_cols = df[['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']]
+        df_cols = df[["SepalLengthCm", "SepalWidthCm", "PetalLengthCm", "PetalWidthCm"]]
 
     print(f"Model Path: {model.path}")
-    inf_model = joblib.load(model.path+'/model.joblib')
+    inf_model = joblib.load(model.path + "/model.joblib")
     inf_pred = inf_model.predict(df_cols)
     print(len(inf_pred))
     print(inf_pred[:5])
-    
+
     # Create predictions dataframe
     predictions_df = df.copy()
-    predictions_df['prediction'] = inf_pred
-    predictions_df['prediction_timestamp'] = datetime.now()
-    predictions_df['model_path'] = model.path
+    predictions_df["prediction"] = inf_pred
+    predictions_df["prediction_timestamp"] = datetime.now()
+    predictions_df["model_path"] = model.path
     print(len(predictions_df))
     # Write predictions to BigQuery
     predictions_table_id = f"{project_id}.{bq_dataset}.{bq_table_predictions}"
@@ -69,16 +79,16 @@ def inference_model(
     # except:
     #     # Table doesn't exist, use WRITE_TRUNCATE to create it
     #     write_disposition = "WRITE_TRUNCATE"
-    #print(write_disposition)
+    # print(write_disposition)
 
     job_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_TRUNCATE"
-        #schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+        # schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
-    
+
     job = client.load_table_from_dataframe(
         predictions_df, predictions_table_id, job_config=job_config
     )
     job.result()  # Wait for the job to complete
-    
+
     print(f"Loaded {len(predictions_df)} rows to {predictions_table_id}")

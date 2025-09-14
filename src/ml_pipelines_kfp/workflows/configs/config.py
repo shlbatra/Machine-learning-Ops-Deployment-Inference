@@ -208,7 +208,7 @@ class ValidatePreprocessingConfig(BaseModel):
     columns: List[str]
     project_id: str
 
-    
+
 def get_base_pipeline_config(pipeline_name, pipeline_filename) -> config.PipelineConfig:
     return config.PipelineConfig(
         project_id="shopify-buyer-trust",

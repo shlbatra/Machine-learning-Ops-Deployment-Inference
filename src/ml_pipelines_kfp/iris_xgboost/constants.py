@@ -2,7 +2,9 @@ import os
 from pathlib import Path
 
 PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = str(Path(PACKAGE_ROOT).parent.parent.parent.absolute())  # "ml_pipelines_kfp"
+REPO_ROOT = str(
+    Path(PACKAGE_ROOT).parent.parent.parent.absolute()
+)  # "ml_pipelines_kfp"
 SERVICE_ACCOUNT_PATH = os.path.join(REPO_ROOT, "deeplearning-sahil-e50332de6687.json")
 
 # Project settings
