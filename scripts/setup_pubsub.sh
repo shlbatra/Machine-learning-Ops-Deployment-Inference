@@ -28,20 +28,6 @@ gcloud pubsub subscriptions create $SUBSCRIPTION_NAME \
     --project=$PROJECT_ID \
     --ack-deadline=60 || echo "Subscription already exists"
 
-# Grant necessary Pub/Sub permissions to service account
-# echo "Granting Pub/Sub permissions to $SERVICE_ACCOUNT..."
-# gcloud projects add-iam-policy-binding $PROJECT_ID \
-#     --member="serviceAccount:$SERVICE_ACCOUNT" \
-#     --role="roles/pubsub.editor"
-
-# gcloud projects add-iam-policy-binding $PROJECT_ID \
-#     --member="serviceAccount:$SERVICE_ACCOUNT" \
-#     --role="roles/pubsub.subscriber"
-
-# gcloud projects add-iam-policy-binding $PROJECT_ID \
-#     --member="serviceAccount:$SERVICE_ACCOUNT" \
-#     --role="roles/pubsub.publisher"
-
 echo "Pub/Sub setup complete!"
 echo ""
 echo "Resources created:"
