@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy Dataflow streaming job for real-time Iris inference
+# Deploy Dataflow streaming job for real-time Iris inference using FastAPI service
 set -e
 
 # Configuration
@@ -12,9 +12,10 @@ OUTPUT_TABLE="$PROJECT_ID:ml_dataset.iris_predictions_streaming"
 TEMP_LOCATION="gs://sb-vertex/temp"
 STAGING_LOCATION="gs://sb-vertex/staging"
 SERVICE_ACCOUNT="kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
-ENDPOINT_NAME="Iris-Classifier-XGBoost"
+SERVICE_URL="https://iris-classifier-xgboost-service-zoxyfmo73q-uc.a.run.app"
 
-echo "Deploying Dataflow streaming job for real-time inference..."
+echo "Deploying Dataflow streaming job for real-time inference using FastAPI service..."
+echo "Note: Update SERVICE_URL with the actual Cloud Run service URL after deployment"
 
 # Run the Dataflow job
 echo "Starting Dataflow streaming job: $JOB_NAME"
@@ -23,7 +24,7 @@ python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
     --output_table $OUTPUT_TABLE \
     --project_id $PROJECT_ID \
     --region $REGION \
-    --endpoint_name $ENDPOINT_NAME \
+    --service_url $SERVICE_URL \
     --runner DataflowRunner \
     --job_name $JOB_NAME \
     --temp_location $TEMP_LOCATION \

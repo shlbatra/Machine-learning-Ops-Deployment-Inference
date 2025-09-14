@@ -15,7 +15,7 @@ COPY requirements.fastapi.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy FastAPI application
-COPY fastapi_server_template.py main.py
+COPY fastapi_server.py main.py
 
 # Create directory for models
 RUN mkdir -p /app/models

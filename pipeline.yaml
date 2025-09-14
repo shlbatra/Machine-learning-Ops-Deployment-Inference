@@ -257,8 +257,7 @@ deploymentSpec:
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
           \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform>=1.59.0'\
           \ 'google-cloud-run>=0.10.0' 'google-cloud-storage>=2.10.0' 'requests>=2.31.0'\
-          \ 'joblib>=1.4.2' 'scikit-learn>=1.3.0' 'pandas>=2.0.0' 'numpy>=1.24.0'\
-          \ 'grpcio-status>=1.62.3' && \"$0\" \"$@\"\n"
+          \ 'joblib>=1.4.2' 'grpcio-status>=1.62.3' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -286,17 +285,15 @@ deploymentSpec:
           \ credentials\n    client = aiplatform_v1.ModelServiceClient(\n        credentials=credentials,\n\
           \        client_options={\"api_endpoint\": f\"{location}-aiplatform.googleapis.com\"\
           }\n    )\n\n    print(f\"Searching for blessed model with name: {model_name}\"\
-          )\n\n    # Use the high-level aiplatform library to list all model versions\n\
-          \    # models = aiplatform.Model.list(filter=f\"display_name={model_name}\"\
-          )\n    # blessed_model = None\n\n    request = {\n            \"parent\"\
-          : f\"projects/{project_id}/locations/{location}\",\n            \"filter\"\
-          : f\"display_name={model_name}\"\n        }\n\n    models = list(client.list_models(request=request))\n\
-          \    blessed_model = None\n\n    print(f\"Found {len(models)} model versions\
-          \ with name {model_name}\")\n\n    # Search through all model versions (each\
-          \ item in models is already a version)\n    for parent_model in models:\n\
-          \        print(f\"Checking parent model: {parent_model.name}\")\n\n    \
-          \    # List all versions of this model\n        versions_request = {\"name\"\
-          : parent_model.name}\n        versions = list(client.list_model_versions(request=versions_request))\n\
+          )\n\n    request = {\n            \"parent\": f\"projects/{project_id}/locations/{location}\"\
+          ,\n            \"filter\": f\"display_name={model_name}\"\n        }\n\n\
+          \    models = list(client.list_models(request=request))\n    blessed_model\
+          \ = None\n\n    print(f\"Found {len(models)} model versions with name {model_name}\"\
+          )\n\n    # Search through all model versions (each item in models is already\
+          \ a version)\n    for parent_model in models:\n        print(f\"Checking\
+          \ parent model: {parent_model.name}\")\n\n        # List all versions of\
+          \ this model\n        versions_request = {\"name\": parent_model.name}\n\
+          \        versions = list(client.list_model_versions(request=versions_request))\n\
           \n        print(f\"Found {len(versions)} versions for this model\")\n\n\
           \        for version in versions:\n            print(f\"Version {version.version_id}:\
           \ Aliases = {list(version.version_aliases)}\")\n            if \"blessed\"\
@@ -308,34 +305,29 @@ deploymentSpec:
           \ ValueError(f\"No blessed version found for model {model_name}. Available\
           \ versions: {available_versions}\")\n\n    print(f\"Found blessed model:\
           \ {blessed_model.name}\")\n    print(f\"Model URI: {blessed_model.artifact_uri}\"\
-          )\n\n    # 2. Download joblib model from blessed version\n    gcs_uri =\
-          \ blessed_model.artifact_uri\n    if not gcs_uri.startswith('gs://'):\n\
-          \        raise ValueError(f\"Expected GCS URI, got: {gcs_uri}\")\n\n   \
-          \ bucket_name = gcs_uri.replace('gs://', '').split('/')[0]\n    model_path\
-          \ = '/'.join(gcs_uri.replace('gs://', '').split('/')[1:])\n\n    print(f\"\
-          Downloading model from gs://{bucket_name}/{model_path}\")\n\n    storage_client\
-          \ = storage.Client()\n    bucket = storage_client.bucket(bucket_name)\n\n\
-          \    # Download and validate the model\n    model_blob_path = f\"{model_path}/model.joblib\"\
+          )\n\n    # Download joblib model from blessed version\n    gcs_uri = blessed_model.artifact_uri\n\
+          \    if not gcs_uri.startswith('gs://'):\n        raise ValueError(f\"Expected\
+          \ GCS URI, got: {gcs_uri}\")\n\n    bucket_name = gcs_uri.replace('gs://',\
+          \ '').split('/')[0]\n    model_path = '/'.join(gcs_uri.replace('gs://',\
+          \ '').split('/')[1:])\n\n    print(f\"Downloading model from gs://{bucket_name}/{model_path}\"\
+          )\n\n    storage_client = storage.Client()\n    bucket = storage_client.bucket(bucket_name)\n\
+          \n    # Download and validate the model\n    model_blob_path = f\"{model_path}/model.joblib\"\
           \n    blob = bucket.blob(model_blob_path)\n\n    if not blob.exists():\n\
           \        raise ValueError(f\"Model file not found at gs://{bucket_name}/{model_blob_path}\"\
           )\n\n    with tempfile.NamedTemporaryFile(suffix='.joblib', delete=False)\
           \ as temp_file:\n        blob.download_to_filename(temp_file.name)\n   \
           \     local_model_path = temp_file.name\n\n    print(f\"Downloaded model\
-          \ to: {local_model_path}\")\n\n    # 3. Validate model can be loaded\n \
-          \   try:\n        model_obj = joblib.load(local_model_path)\n        print(f\"\
-          Model type: {type(model_obj)}\")\n        print(f\"Model validation successful\"\
-          )\n    except Exception as e:\n        os.unlink(local_model_path)\n   \
-          \     raise ValueError(f\"Model validation failed: {e}\")\n\n    # 4. Copy\
-          \ model to standard deployment location\n    deployment_model_path = f\"\
-          deployed-models/{service_name}/model.joblib\"\n    deployment_blob = bucket.blob(deployment_model_path)\n\
-          \n    print(f\"Copying model to deployment location: gs://{bucket_name}/{deployment_model_path}\"\
+          \ to: {local_model_path}\")\n\n    # Copy model to standard deployment location\n\
+          \    deployment_model_path = f\"deployed-models/{service_name}/model.joblib\"\
+          \n    deployment_blob = bucket.blob(deployment_model_path)\n\n    print(f\"\
+          Copying model to deployment location: gs://{bucket_name}/{deployment_model_path}\"\
           )\n    deployment_blob.upload_from_filename(local_model_path)\n\n    model_gcs_path\
           \ = f\"gs://{bucket_name}/{deployment_model_path}\"\n    print(f\"Model\
-          \ available at: {model_gcs_path}\")\n\n    # 5. Deploy to Cloud Run using\
-          \ pre-built generic image\n    print(f\"Deploying to Cloud Run service:\
-          \ {service_name}\")\n\n    run_client = run_v2.ServicesClient()\n\n    #\
-          \ Use pre-built generic FastAPI image from CI/CD\n    generic_image = fastapi_image_name\n\
-          \n    service_config = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
+          \ available at: {model_gcs_path}\")\n\n    # Deploy to Cloud Run using pre-built\
+          \ generic image\n    print(f\"Deploying to Cloud Run service: {service_name}\"\
+          )\n\n    run_client = run_v2.ServicesClient()\n\n    # Use pre-built generic\
+          \ FastAPI image from CI/CD\n    generic_image = fastapi_image_name\n\n \
+          \   service_config = {\n        \"parent\": f\"projects/{project_id}/locations/{location}\"\
           ,\n        \"service_id\": service_name,\n        \"service\": {\n     \
           \       \"template\": {\n                \"containers\": [{\n          \
           \          \"image\": generic_image,\n                    \"ports\": [{\"\
@@ -370,14 +362,14 @@ deploymentSpec:
           \            resource=result.name,  # This should be the full resource name\n\
           \            policy=policy\n        )\n        run_client.set_iam_policy(request=iam_request)\n\
           \n        service_url = result.uri\n        print(f\"Service deployed successfully\
-          \ to: {service_url}\")\n\n        # 6. Test deployment\n        print(\"\
-          Testing deployment...\")\n        time.sleep(30)  # Wait for service to\
-          \ be ready\n\n        test_payload = {\n            \"instances\": [\n \
-          \              {\"SepalLengthCm\": 5.1, \"SepalWidthCm\": 3.5, \"PetalLengthCm\"\
-          : 1.4, \"PetalWidthCm\": 0.2}\n            ]\n        }\n\n        try:\n\
-          \            # Test health endpoint first\n            health_response =\
-          \ requests.get(f\"{service_url}/health\", timeout=30)\n            print(f\"\
-          Health check status: {health_response.status_code}\")\n            if health_response.status_code\
+          \ to: {service_url}\")\n\n        # Test deployment\n        print(\"Testing\
+          \ deployment...\")\n        time.sleep(30)  # Wait for service to be ready\n\
+          \n        test_payload = {\n            \"instances\": [\n             \
+          \  {\"SepalLengthCm\": 5.1, \"SepalWidthCm\": 3.5, \"PetalLengthCm\": 1.4,\
+          \ \"PetalWidthCm\": 0.2}\n            ]\n        }\n\n        try:\n   \
+          \         # Test health endpoint first\n            health_response = requests.get(f\"\
+          {service_url}/health\", timeout=30)\n            print(f\"Health check status:\
+          \ {health_response.status_code}\")\n            if health_response.status_code\
           \ == 200:\n                print(f\"Health check response: {health_response.json()}\"\
           )\n\n            # Test prediction endpoint\n            response = requests.post(\n\
           \                f\"{service_url}/predict\", \n                json=test_payload,\n\

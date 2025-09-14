@@ -1,24 +1,24 @@
 """
 Dataflow streaming pipeline for real-time Iris inference.
-Reads from Pub/Sub, calls Vertex AI endpoint, writes predictions to BigQuery.
+Reads from Pub/Sub, calls FastAPI ML service deployed via Kubeflow, writes predictions to BigQuery.
 """
 import json
 import logging
 import argparse
 from typing import Any, Dict, List
+import requests
+import time
 
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.transforms import window
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
-from google.cloud import aiplatform
-from google.oauth2 import service_account
 
 # Constants
 PROJECT_ID = "deeplearning-sahil"
 REGION = "us-central1"
 MODEL_NAME = "Iris-Classifier-XGBoost"
-ENDPOINT_NAME = "Iris-Classifier-XGBoost"
+FASTAPI_SERVICE_NAME = "iris-classifier-xgboost-service"
 
 # BigQuery schema for predictions
 PREDICTION_SCHEMA = {
@@ -30,10 +30,10 @@ PREDICTION_SCHEMA = {
         {'name': 'timestamp', 'type': 'TIMESTAMP', 'mode': 'REQUIRED'},
         {'name': 'sample_id', 'type': 'INTEGER', 'mode': 'REQUIRED'},
         {'name': 'prediction', 'type': 'STRING', 'mode': 'REQUIRED'},
-        {'name': 'prediction_confidence', 'type': 'FLOAT', 'mode': 'NULLABLE'},
         {'name': 'prediction_timestamp', 'type': 'TIMESTAMP', 'mode': 'REQUIRED'},
-        {'name': 'model_endpoint', 'type': 'STRING', 'mode': 'REQUIRED'},
-        {'name': 'processing_time', 'type': 'FLOAT', 'mode': 'NULLABLE'}
+        {'name': 'model_service', 'type': 'STRING', 'mode': 'REQUIRED'},
+        {'name': 'processing_time', 'type': 'FLOAT', 'mode': 'NULLABLE'},
+        {'name': 'dataflow_processing_time', 'type': 'TIMESTAMP', 'mode': 'REQUIRED'},
     ]
 }
 
@@ -57,75 +57,44 @@ class ParsePubSubMessage(beam.DoFn):
             logging.error(f"Error parsing message: {e}, message: {element}")
 
 
-class CallVertexAIEndpoint(beam.DoFn):
-    """Call Vertex AI model endpoint for inference."""
+class CallFastAPIService(beam.DoFn):
+    """Call FastAPI ML service for inference."""
     
-    def __init__(self, project: str, region: str, endpoint_name: str):
-        self.project = project
-        self.region = region
-        self.endpoint_name = endpoint_name
-        self.client = None
-        self.endpoint = None
-        
-    def setup(self):
-        """Initialize Vertex AI client."""
-        aiplatform.init(project=self.project, location=self.region)
-        
-        # Get the endpoint
-        endpoints = aiplatform.Endpoint.list(
-            filter=f'display_name="{self.endpoint_name}"'
-        )
-        
-        if endpoints:
-            # If multiple endpoints exist with same name, prioritize by:
-            # 1. Most recently created (newest first)
-            # 2. Then by resource name (for consistency)
-            sorted_endpoints = sorted(
-                endpoints, 
-                key=lambda ep: (ep.create_time, ep.resource_name), 
-                reverse=True
-            )
-            
-            self.endpoint = sorted_endpoints[0]
-                
-        else:
-            raise RuntimeError(f"Endpoint '{self.endpoint_name}' not found")
+    def __init__(self, service_url: str):
+        self.service_url = service_url
+        self.predict_url = f"{service_url}/predict"
     
     def process(self, element):
         import time
         from datetime import datetime
+        import requests
         
         start_time = time.time()
         
         try:
-            # Prepare features for prediction
-            features = [
-                element['sepal_length'],
-                element['sepal_width'], 
-                element['petal_length'],
-                element['petal_width']
-            ]
+            # Prepare payload for FastAPI
+            payload = {
+                "instances": [{
+                    "SepalLengthCm": element['sepal_length'],
+                    "SepalWidthCm": element['sepal_width'], 
+                    "PetalLengthCm": element['petal_length'],
+                    "PetalWidthCm": element['petal_width']
+                }]
+            }
             
-            # Call the endpoint
-            predictions = self.endpoint.predict(instances=[features])
+            # Call FastAPI service
+            response = requests.post(self.predict_url, json=payload, timeout=30)
+            response.raise_for_status()
             
-            # Extract prediction result
-            prediction_result = predictions.predictions[0]
-
-            logging.info(f"Prediction result: {prediction_result}")
+            # Parse response
+            result_data = response.json()
+            predictions = result_data.get('predictions', [])
             
-            # Handle different prediction formats
-            if isinstance(prediction_result, list):
-                predicted_class = prediction_result[0]
-                confidence = max(prediction_result) if len(prediction_result) > 1 else None
+            if predictions:
+                prediction_result = predictions[0]
+                predicted_class = str(prediction_result.get('prediction', 'unknown'))
             else:
-                predicted_class = str(prediction_result)
-                confidence = None
-            
-            # Map numeric prediction to class name if needed
-            class_mapping = {0: 'setosa', 1: 'versicolor', 2: 'virginica'}
-            if str(predicted_class).isdigit():
-                predicted_class = class_mapping.get(int(predicted_class), str(predicted_class))
+                predicted_class = 'unknown'
             
             processing_time = time.time() - start_time
             
@@ -137,10 +106,9 @@ class CallVertexAIEndpoint(beam.DoFn):
                 'petal_width': element['petal_width'],
                 'timestamp': element.get('timestamp', datetime.utcnow().isoformat()),
                 'sample_id': element.get('sample_id', 0),
-                'prediction': str(predicted_class),
-                'prediction_confidence': confidence,
+                'prediction': predicted_class,
                 'prediction_timestamp': datetime.utcnow().isoformat(),
-                'model_endpoint': f"{self.project}/{self.region}/{self.endpoint_name}",
+                'model_service': self.service_url,
                 'processing_time': processing_time
             }
             
@@ -148,7 +116,7 @@ class CallVertexAIEndpoint(beam.DoFn):
             yield result
             
         except Exception as e:
-            logging.error(f"Error calling endpoint: {e}, element: {element}")
+            logging.error(f"Error calling FastAPI service: {e}, element: {element}")
             # Yield error record for monitoring
             yield {
                 'sepal_length': element.get('sepal_length', 0.0),
@@ -158,9 +126,8 @@ class CallVertexAIEndpoint(beam.DoFn):
                 'timestamp': element.get('timestamp', datetime.utcnow().isoformat()),
                 'sample_id': element.get('sample_id', 0),
                 'prediction': 'ERROR',
-                'prediction_confidence': None,
                 'prediction_timestamp': datetime.utcnow().isoformat(),
-                'model_endpoint': f"ERROR: {str(e)}",
+                'model_service': f"ERROR: {str(e)}",
                 'processing_time': time.time() - start_time
             }
 
@@ -173,7 +140,6 @@ class AddProcessingMetadata(beam.DoFn):
         
         # Add additional metadata
         element['dataflow_processing_time'] = datetime.utcnow().isoformat()
-        element['pipeline_version'] = '1.0.0'
         
         yield element
 
@@ -203,9 +169,9 @@ def run_pipeline(argv=None):
         help='GCP Region'
     )
     parser.add_argument(
-        '--endpoint_name',
+        '--service_url',
         required=True,
-        help='Vertex AI endpoint name'
+        help='FastAPI service URL'
     )
     
     known_args, pipeline_args = parser.parse_known_args(argv)
@@ -227,11 +193,8 @@ def run_pipeline(argv=None):
             pipeline
             | 'Read from Pub/Sub' >> ReadFromPubSub(topic=known_args.input_topic)
             | 'Parse JSON' >> beam.ParDo(ParsePubSubMessage())
-            | 'Add Window' >> beam.WindowInto(window.FixedWindows(60))  # 1-minute windows
-            | 'Call Vertex AI' >> beam.ParDo(CallVertexAIEndpoint(
-                known_args.project_id, 
-                known_args.region, 
-                known_args.endpoint_name))
+            | 'Call FastAPI Service' >> beam.ParDo(CallFastAPIService(
+                known_args.service_url))
             | 'Add Metadata' >> beam.ParDo(AddProcessingMetadata())
             | 'Write to BigQuery' >> WriteToBigQuery(
                 table=known_args.output_table,
