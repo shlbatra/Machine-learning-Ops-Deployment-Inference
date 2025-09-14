@@ -9,9 +9,6 @@ from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
         "google-cloud-storage>=2.10.0",
         "requests>=2.31.0",
         "joblib>=1.4.2",
-        "scikit-learn>=1.3.0",
-        "pandas>=2.0.0",
-        "numpy>=1.24.0",
         "grpcio-status>=1.62.3"
     ]
 )
@@ -53,10 +50,6 @@ def deploy_blessed_model_to_fastapi(
 
     print(f"Searching for blessed model with name: {model_name}")
     
-    # Use the high-level aiplatform library to list all model versions
-    # models = aiplatform.Model.list(filter=f"display_name={model_name}")
-    # blessed_model = None
-
     request = {
             "parent": f"projects/{project_id}/locations/{location}",
             "filter": f"display_name={model_name}"
@@ -94,7 +87,7 @@ def deploy_blessed_model_to_fastapi(
     print(f"Found blessed model: {blessed_model.name}")
     print(f"Model URI: {blessed_model.artifact_uri}")
     
-    # 2. Download joblib model from blessed version
+    # Download joblib model from blessed version
     gcs_uri = blessed_model.artifact_uri
     if not gcs_uri.startswith('gs://'):
         raise ValueError(f"Expected GCS URI, got: {gcs_uri}")
@@ -120,16 +113,7 @@ def deploy_blessed_model_to_fastapi(
     
     print(f"Downloaded model to: {local_model_path}")
     
-    # 3. Validate model can be loaded
-    try:
-        model_obj = joblib.load(local_model_path)
-        print(f"Model type: {type(model_obj)}")
-        print(f"Model validation successful")
-    except Exception as e:
-        os.unlink(local_model_path)
-        raise ValueError(f"Model validation failed: {e}")
-    
-    # 4. Copy model to standard deployment location
+    # Copy model to standard deployment location
     deployment_model_path = f"deployed-models/{service_name}/model.joblib"
     deployment_blob = bucket.blob(deployment_model_path)
     
@@ -139,7 +123,7 @@ def deploy_blessed_model_to_fastapi(
     model_gcs_path = f"gs://{bucket_name}/{deployment_model_path}"
     print(f"Model available at: {model_gcs_path}")
     
-    # 5. Deploy to Cloud Run using pre-built generic image
+    # Deploy to Cloud Run using pre-built generic image
     print(f"Deploying to Cloud Run service: {service_name}")
     
     run_client = run_v2.ServicesClient()
@@ -218,7 +202,7 @@ def deploy_blessed_model_to_fastapi(
         service_url = result.uri
         print(f"Service deployed successfully to: {service_url}")
         
-        # 6. Test deployment
+        # Test deployment
         print("Testing deployment...")
         time.sleep(30)  # Wait for service to be ready
         

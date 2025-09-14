@@ -258,7 +258,7 @@ deploymentSpec:
           \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform>=1.59.0'\
           \ 'google-cloud-run>=0.10.0' 'google-cloud-storage>=2.10.0' 'requests>=2.31.0'\
           \ 'joblib>=1.4.2' 'scikit-learn>=1.3.0' 'pandas>=2.0.0' 'numpy>=1.24.0'\
-          \ && \"$0\" \"$@\"\n"
+          \ 'grpcio-status>=1.62.3' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -274,10 +274,13 @@ deploymentSpec:
           \ str,\n    model_name: str,\n    service_name: str,\n    fastapi_image_name:\
           \ str,\n    service_endpoint: Output[Artifact]\n):\n    from google.cloud\
           \ import aiplatform, aiplatform_v1, run_v2, storage\n    from google.auth\
-          \ import default\n    import joblib\n    import tempfile\n    import os\n\
-          \    import requests\n    import time\n\n    print(f\"Starting FastAPI deployment\
-          \ for blessed model: {model_name}\")\n    print(f\"Service name: {service_name}\"\
-          )\n\n    # 1. Initialize Vertex AI and get credentials\n    aiplatform.init(project=project_id,\
+          \ import default\n    from google.cloud.run_v2 import ServicesClient\n \
+          \   from google.iam.v1 import iam_policy_pb2\n    from google.iam.v1.iam_policy_pb2\
+          \ import SetIamPolicyRequest\n    from google.iam.v1 import policy_pb2\n\
+          \    import joblib\n    import tempfile\n    import os\n    import requests\n\
+          \    import time\n\n    print(f\"Starting FastAPI deployment for blessed\
+          \ model: {model_name}\")\n    print(f\"Service name: {service_name}\")\n\
+          \n    # 1. Initialize Vertex AI and get credentials\n    aiplatform.init(project=project_id,\
           \ location=location)\n\n    # Get default credentials\n    credentials,\
           \ _ = default()\n    print(credentials)\n\n    # Create client with explicit\
           \ credentials\n    client = aiplatform_v1.ModelServiceClient(\n        credentials=credentials,\n\
@@ -340,8 +343,7 @@ deploymentSpec:
           \                  \"limits\": {\n                            \"memory\"\
           : \"2Gi\",\n                            \"cpu\": \"2\"\n               \
           \         }\n                    },\n                    \"env\": [\n  \
-          \                      {\"name\": \"PORT\", \"value\": \"8080\"},\n    \
-          \                    {\"name\": \"MODEL_GCS_PATH\", \"value\": model_gcs_path},\n\
+          \                      {\"name\": \"MODEL_GCS_PATH\", \"value\": model_gcs_path},\n\
           \                        {\"name\": \"MODEL_NAME\", \"value\": model_name},\n\
           \                        {\"name\": \"GOOGLE_CLOUD_PROJECT\", \"value\"\
           : project_id}\n                    ]\n                }],\n            \
@@ -360,19 +362,25 @@ deploymentSpec:
           \ as get_error:\n            print(f\"Service doesn't exist, creating new\
           \ one: {get_error}\")\n            # Create new service\n            operation\
           \ = run_client.create_service(request=service_config)\n            result\
-          \ = operation.result(timeout=600)\n\n        service_url = result.uri\n\
-          \        print(f\"Service deployed successfully to: {service_url}\")\n\n\
-          \        # 6. Test deployment\n        print(\"Testing deployment...\")\n\
-          \        time.sleep(30)  # Wait for service to be ready\n\n        test_payload\
-          \ = {\n            \"instances\": [\n                {\"sepal_length\":\
-          \ 5.1, \"sepal_width\": 3.5, \"petal_length\": 1.4, \"petal_width\": 0.2}\n\
-          \            ]\n        }\n\n        try:\n            # Test health endpoint\
-          \ first\n            health_response = requests.get(f\"{service_url}/health\"\
-          , timeout=30)\n            print(f\"Health check status: {health_response.status_code}\"\
-          )\n            if health_response.status_code == 200:\n                print(f\"\
-          Health check response: {health_response.json()}\")\n\n            # Test\
-          \ prediction endpoint\n            response = requests.post(\n         \
-          \       f\"{service_url}/predict\", \n                json=test_payload,\n\
+          \ = operation.result(timeout=600)\n\n\n        run_client = ServicesClient()\n\
+          \n        # Create policy to allow public access\n        policy = policy_pb2.Policy()\n\
+          \        binding = policy_pb2.Binding()\n        binding.role = \"roles/run.invoker\"\
+          \n        binding.members.append(\"allUsers\")\n        policy.bindings.append(binding)\n\
+          \n        # Apply the policy\n        iam_request = SetIamPolicyRequest(\n\
+          \            resource=result.name,  # This should be the full resource name\n\
+          \            policy=policy\n        )\n        run_client.set_iam_policy(request=iam_request)\n\
+          \n        service_url = result.uri\n        print(f\"Service deployed successfully\
+          \ to: {service_url}\")\n\n        # 6. Test deployment\n        print(\"\
+          Testing deployment...\")\n        time.sleep(30)  # Wait for service to\
+          \ be ready\n\n        test_payload = {\n            \"instances\": [\n \
+          \              {\"SepalLengthCm\": 5.1, \"SepalWidthCm\": 3.5, \"PetalLengthCm\"\
+          : 1.4, \"PetalWidthCm\": 0.2}\n            ]\n        }\n\n        try:\n\
+          \            # Test health endpoint first\n            health_response =\
+          \ requests.get(f\"{service_url}/health\", timeout=30)\n            print(f\"\
+          Health check status: {health_response.status_code}\")\n            if health_response.status_code\
+          \ == 200:\n                print(f\"Health check response: {health_response.json()}\"\
+          )\n\n            # Test prediction endpoint\n            response = requests.post(\n\
+          \                f\"{service_url}/predict\", \n                json=test_payload,\n\
           \                timeout=30\n            )\n            if response.status_code\
           \ == 200:\n                print(\"Deployment test successful!\")\n    \
           \            print(f\"Prediction: {response.json()}\")\n            else:\n\
