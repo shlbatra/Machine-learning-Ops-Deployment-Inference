@@ -9,8 +9,9 @@ This repository implements a complete ML pipeline for the Iris dataset classific
 - Parallel model training (Decision Tree, Random Forest, XGBoost)
 - Automatic model evaluation and selection
 - Model registration and versioning in Vertex AI
-- Automated deployment to Vertex AI endpoints
+- Automated deployment to FastAPI services on Cloud Run
 - Batch inference capabilities
+- Real-time streaming inference with Dataflow
 - REST API serving with FastAPI
 
 ## Key Features
@@ -36,11 +37,14 @@ src/ml_pipelines_kfp/
 │   └── constants.py        # Configuration constants
 ├── workflows/              # Alternative workflow implementations
 └── notebooks/              # Example notebooks and experiments
+├── dataflow/               # Dataflow streaming pipelines
+│   └── iris_streaming_pipeline.py
 schemas/                    # Input/output schemas for Vertex AI
 memory-bank/                # Project context and documentation
 Dockerfile                  # Container definition
 pyproject.toml              # Project dependencies
 pipeline.yaml               # Pipeline configuration
+deploy_dataflow_streaming.sh # Dataflow streaming deployment script
 ```
 
 ## Prerequisites
@@ -98,8 +102,8 @@ This will:
 - Load data from BigQuery
 - Train Decision Tree and Random Forest models in parallel
 - Evaluate and select the best model
-- Register the model in Vertex AI Model Registry
-- Deploy the model to an endpoint
+- Register the model in Vertex AI Model Registry with "blessed" alias
+- Deploy the blessed model to FastAPI service on Cloud Run
 
 ### 3. Run Inference Pipeline
 
@@ -108,7 +112,23 @@ This will:
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference.py
 ```
 
-### 4. Local API Server
+### 4. Real-time Streaming Inference
+
+Deploy a Dataflow streaming job for real-time inference:
+
+```bash
+# Deploy streaming pipeline (update SERVICE_URL with actual Cloud Run URL)
+./deploy_dataflow_streaming.sh
+```
+
+Start generating test data:
+
+```bash
+# Run data producer to send samples to Pub/Sub
+python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py --project-id deeplearning-sahil
+```
+
+### 5. Local API Server
 
 ```bash
 # Run the FastAPI server locally
@@ -144,9 +164,10 @@ The project follows a component-based architecture where each ML pipeline step i
 1. **Data Component**: Loads and splits data from BigQuery
 2. **Model Components**: Implements various ML algorithms
 3. **Evaluation Component**: Compares model performance
-4. **Registry Component**: Manages model versioning
-5. **Deployment Component**: Handles endpoint deployment
+4. **Registry Component**: Manages model versioning with "blessed" aliases
+5. **Deployment Component**: Deploys blessed models to Cloud Run FastAPI services
 6. **Inference Component**: Performs batch predictions
+7. **Streaming Component**: Real-time inference via Dataflow and Pub/Sub
 
 ## Configuration
 
@@ -159,25 +180,44 @@ Key configuration is managed in `src/ml_pipelines_kfp/iris_xgboost/constants.py`
 ## CI/CD
 
 The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) that:
-- Builds Docker images
+- Builds Docker images for KFP components
+- Builds generic FastAPI inference containers
 - Pushes to Google Artifact Registry
 - Triggers on pushes to main branch
 
 ## Technologies
 
 - **Orchestration**: Kubeflow Pipelines 2.8.0
-- **Cloud Platform**: Google Cloud (Vertex AI, BigQuery, GCS)
+- **Cloud Platform**: Google Cloud (Vertex AI, BigQuery, GCS, Cloud Run, Dataflow)
 - **ML Frameworks**: scikit-learn, XGBoost
 - **API Framework**: FastAPI
+- **Streaming**: Apache Beam, Dataflow, Pub/Sub
 - **Data Processing**: Pandas, Polars, Dask
 - **Package Management**: uv, Hatchling
 
-## Set up Pub Sub
+## Deployment Architecture
 
-bash
-```
-gcloud auth application-default print-access-token
-export GOOGLE_APPLICATION_CREDENTIALS="./***.json"
-gcloud auth application-default print-access-token
-python test_pubsub.py
-```
+### Model Deployment Strategy
+
+The project uses a **blessed model pattern** for production deployments:
+
+1. **Training Pipeline**: Trains multiple models and selects the best performer
+2. **Model Registry**: Stores the winning model in Vertex AI with "blessed" alias
+3. **Deployment Pipeline**: Automatically deploys only "blessed" models to production
+4. **Cost Optimization**: Uses FastAPI on Cloud Run
+
+### Streaming Architecture
+
+Real-time inference is handled through:
+
+1. **Data Ingestion**: Pub/Sub receives real-time inference requests
+2. **Stream Processing**: Dataflow processes messages and calls FastAPI services
+3. **Model Serving**: Cloud Run hosts FastAPI containers with blessed models
+4. **Results Storage**: Predictions are written to BigQuery for monitoring
+
+### Key Benefits
+
+- **Cost Effective**: Cloud Run FastAPI services cost ~90% less than Vertex AI endpoints
+- **Scalable**: Dataflow auto-scales based on Pub/Sub message volume
+- **Reliable**: Only production-ready "blessed" models are deployed
+- **Observable**: All predictions logged to BigQuery with metadata
