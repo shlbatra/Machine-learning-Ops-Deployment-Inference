@@ -8,6 +8,8 @@ import os
 import logging
 import tempfile
 from google.cloud import storage
+import uvicorn
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -87,8 +89,7 @@ async def root():
     return {
         "message": "ML Model Inference API",
         "health_check": "/health",
-        "prediction": "/predict",
-        "vertex_ai_endpoint": "/v1/models/model:predict",
+        "prediction": "/predict"
     }
 
 
@@ -130,7 +131,6 @@ async def predict(request: PredictionRequest):
 
 
 if __name__ == "__main__":
-    import uvicorn
 
     port = int(os.getenv("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
