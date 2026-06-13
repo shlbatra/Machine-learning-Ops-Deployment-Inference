@@ -3,12 +3,11 @@ import random
 import time
 from datetime import datetime
 from typing import Dict, Any
-import logging
 from google.cloud import pubsub_v1
 from google.cloud.pubsub_v1.publisher.futures import Future
+from ml_pipelines_kfp.log import get_logger
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class IrisDataPubSubProducer:
@@ -24,11 +23,9 @@ class IrisDataPubSubProducer:
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
 
-        # Initialize Pub/Sub publisher using default credentials
         self.publisher = pubsub_v1.PublisherClient()
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
 
-        # Create topic if it doesn't exist
         self._create_topic_if_not_exists()
 
     def _create_topic_if_not_exists(self):
@@ -72,10 +69,8 @@ class IrisDataPubSubProducer:
             sample = self.generate_iris_sample()
             batch_data.append(sample)
 
-            # Convert to JSON and publish
             message_data = json.dumps(sample).encode("utf-8")
 
-            # Add attributes for message routing/filtering
             attributes = {
                 "sample_id": str(sample["sample_id"]),
                 "source": "iris-data-generator",
@@ -92,10 +87,9 @@ class IrisDataPubSubProducer:
             except Exception as e:
                 logger.error(f"Error publishing message: {e}")
 
-        # Wait for all messages to be published
         for future in futures:
             try:
-                future.result(timeout=30)  # 30 second timeout
+                future.result(timeout=30)
             except Exception as e:
                 logger.error(f"Message publish failed: {e}")
 
@@ -137,7 +131,6 @@ class IrisDataPubSubProducer:
     def close(self):
         """Close the publisher."""
         if self.publisher:
-            # Pub/Sub publisher doesn't need explicit closing
             logger.info("Pub/Sub producer closed")
 
 

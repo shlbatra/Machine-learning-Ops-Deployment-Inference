@@ -1,15 +1,8 @@
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "pandas==2.0.0",
-        "scikit-learn==1.5.1",
-        "numpy==1.23.0",
-        "joblib==1.4.2",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def decision_tree(
     train_dataset: Input[Dataset],
     metrics: Output[Metrics],
@@ -40,15 +33,7 @@ def decision_tree(
     joblib.dump(model, output_model.path)
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "pandas==2.0.0",
-        "scikit-learn==1.5.1",
-        "numpy==1.23.0",
-        "joblib==1.4.2",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def random_forest(
     train_dataset: Input[Dataset],
     metrics: Output[Metrics],

@@ -1,15 +1,8 @@
 from kfp.dsl import Dataset, Output, component
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "pandas==2.0.0",
-        "scikit-learn==1.5.1",
-        "numpy==1.23.0",
-        "google-cloud-bigquery==2.34.3",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def load_data(
     project_id: str,
     bq_dataset: str,

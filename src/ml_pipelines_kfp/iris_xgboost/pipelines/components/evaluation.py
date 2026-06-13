@@ -1,17 +1,8 @@
 from kfp.dsl import Dataset, Input, Metrics, Model, Output, component
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "pandas==2.0.0",
-        "scikit-learn==1.5.1",
-        "numpy==1.23.0",
-        "joblib==1.4.2",
-        "fsspec==2024.6.1",
-        "gcsfs==2024.6.1",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def choose_best_model(
     test_dataset: Input[Dataset],
     decision_tree_model: Input[Model],
@@ -23,6 +14,9 @@ def choose_best_model(
     import pandas as pd
     from sklearn.metrics import accuracy_score
     import os, pickle, fsspec, gcsfs
+    from ml_pipelines_kfp.log import get_logger
+
+    logger = get_logger(__name__)
 
     test_data = pd.read_csv(test_dataset.path)
 
@@ -34,8 +28,6 @@ def choose_best_model(
 
     dt_accuracy = accuracy_score(test_data["Species"], dt_pred)
     rf_accuracy = accuracy_score(test_data["Species"], rf_pred)
-    print(dt_accuracy)
-    print(rf_accuracy)
 
     metrics.log_metric("Decision Tree (Accuracy)", (dt_accuracy))
     metrics.log_metric("Random Forest (Accuracy)", (rf_accuracy))
@@ -48,12 +40,7 @@ def choose_best_model(
     with fs.open(model_uri, "wb") as f:
         if rf_accuracy >= dt_accuracy:
             joblib.dump(rf, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print(f"Selected Random Forest model with accuracy: {rf_accuracy}")
+            logger.info(f"Selected Random Forest model with accuracy: {rf_accuracy}")
         else:
             joblib.dump(dt, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print(f"Selected Decision Tree model with accuracy: {dt_accuracy}")
-
-    # if rf_accuracy >= dt_accuracy:
-    #     joblib.dump(dt, best_model.path)
-    # else:
-    #     joblib.dump(rf, best_model.path)
+            logger.info(f"Selected Decision Tree model with accuracy: {dt_accuracy}")

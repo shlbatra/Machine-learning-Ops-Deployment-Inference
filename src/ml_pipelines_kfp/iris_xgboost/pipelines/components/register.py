@@ -1,14 +1,8 @@
 from kfp.dsl import Input, Model, component, Output, Artifact
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "google-cloud-aiplatform==1.64.0",
-        "fsspec==2024.6.1",
-        "gcsfs==2024.6.1",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def upload_model(
     project_id: str,
     location: str,
@@ -20,16 +14,15 @@ def upload_model(
 ):
     from google.cloud import aiplatform, aiplatform_v1
     import fsspec, gcsfs
+    from ml_pipelines_kfp.log import get_logger
+
+    logger = get_logger(__name__)
 
     aiplatform.init(project=project_id, location=location)
-
-    # Check model exists in Registry
 
     client = aiplatform_v1.ModelServiceClient(
         client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
     )
-
-    # Get parent model if exists
 
     request = {
         "parent": f"projects/{project_id}/locations/{location}",
@@ -42,7 +35,6 @@ def upload_model(
     else:
         parent_model = None
 
-    # Set up container spec
     container_spec = aiplatform_v1.types.model.ModelContainerSpec(
         image_uri=image_name,
         ports=[{"container_port": 8080}],
@@ -50,7 +42,6 @@ def upload_model(
         health_route="/health/live",
     )
 
-    # Set up instance and prediction schema files
     artifact_uri = schema.path.replace("/gcs/", "gs://")
     instance_schema_filename = "instance.yaml"
     prediction_schema_filename = "prediction.yaml"
@@ -95,4 +86,4 @@ def upload_model(
     vertex_model.metadata["registered"] = True
     vertex_model.metadata["alias"] = "blessed"
 
-    print(f"Model uploaded successfully:\n{result}")
+    logger.info(f"Model uploaded successfully: {result}")
