@@ -22,6 +22,7 @@ COPY . /app
 # Install dependencies using uv
 RUN uv venv
 ENV PATH="/app/.venv/bin:$PATH"
+RUN uv pip install pip
 RUN uv pip install -e .
 
 ARG BUILD_COMMIT="unknown"
