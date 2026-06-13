@@ -32,9 +32,8 @@ src/ml_pipelines_kfp/
 │   │   ├── iris_pipeline_training.py
 │   │   └── iris_pipeline_inference.py
 │   ├── models/             # Pydantic models for API
-│   ├── server.py           # FastAPI serving application
 │   ├── bq_dataloader.py    # BigQuery data loading utility
-│   └── constants.py        # Configuration constants
+│   └── constants.py        # Configuration constants (image names, project settings)
 ├── workflows/              # Alternative workflow implementations
 └── notebooks/              # Example notebooks and experiments
 ├── dataflow/               # Dataflow streaming pipelines
@@ -83,10 +82,10 @@ uv pip install -e .
 # Execute the training pipeline on Vertex AI (uses defaults from constants.py)
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
 
-# Run with a specific Docker image (e.g. testing a branch build before merging)
-python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
-  --image-name us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:remove-old-server \
-  --fastapi-image-name us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:remove-old-server
+# Run with a feature branch image (e.g. testing before merging to main)
+PIPELINE_BASE_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:my-branch \
+PIPELINE_FASTAPI_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:my-branch \
+  python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
 
 # Override other parameters as needed
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
@@ -99,7 +98,7 @@ python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py --help
 ```
 
-Parameters follow a precedence chain: **CLI flag > environment variable > constants.py default**.
+**Image configuration:** `PIPELINE_BASE_IMAGE` and `PIPELINE_FASTAPI_IMAGE` env vars control which Docker images are baked into the compiled pipeline. KFP resolves `base_image` at compile time, so these must be set before running the script. Without them, defaults to `:main` and `:latest` from `constants.py`.
 
 This will:
 - Load data from BigQuery
