@@ -4,14 +4,6 @@ import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 @component(
     base_image=_constants.IMAGE_NAME,
-    packages_to_install=[
-        "google-cloud-aiplatform>=1.59.0",
-        "google-cloud-run>=0.10.0",
-        "google-cloud-storage>=2.10.0",
-        "requests>=2.31.0",
-        "joblib>=1.4.2",
-        "grpcio-status>=1.62.3",
-    ],
 )
 def deploy_blessed_model_to_fastapi(
     project_id: str,

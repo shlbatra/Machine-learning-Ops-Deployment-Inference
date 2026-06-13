@@ -54,7 +54,10 @@ dependencies = [
     "kfp>=2.8.0",
     "kafka-python>=2.0.2",
     "apache-beam[gcp]>=2.50.0",
-    "google-cloud-pubsub>=2.18.1"
+    "google-cloud-pubsub>=2.18.1",
+    "google-cloud-run>=0.10.0",
+    "requests>=2.31.0",
+    "joblib>=1.4.2",
 ]
 
 [build-system]
