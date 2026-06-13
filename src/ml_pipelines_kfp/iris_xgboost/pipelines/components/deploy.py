@@ -1,9 +1,9 @@
 from kfp.dsl import Input, Model, component, Artifact, Output
-from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
 @component(
-    base_image=IMAGE_NAME,
+    base_image=_constants.IMAGE_NAME,
     packages_to_install=[
         "google-cloud-aiplatform>=1.59.0",
         "google-cloud-run>=0.10.0",
