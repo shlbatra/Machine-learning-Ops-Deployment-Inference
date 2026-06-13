@@ -210,3 +210,39 @@ Real-time inference is handled through:
 - **Scalable**: Dataflow auto-scales based on Pub/Sub message volume
 - **Reliable**: Only production-ready "blessed" models are deployed
 - **Observable**: All predictions logged to BigQuery with metadata
+
+## Logging
+
+All components use structured JSON logging via `ml_pipelines_kfp.log.get_logger()`. Logs are auto-parsed by Cloud Logging, enabling filtering by severity, module, and message content.
+
+### Searching Logs in Cloud Logging
+
+**Filter by severity:**
+```
+severity="ERROR"
+severity>="WARNING"
+```
+
+**Search by message content:**
+```
+jsonPayload.message=~"loading data"
+jsonPayload.message=~"ml_dataset"
+```
+
+**Filter by module:**
+```
+jsonPayload.module="ephemeral_component"
+```
+
+**Filter by pipeline job labels:**
+```
+labels.ml_pipelines_run_id="your-run-id"
+labels.ml_pipelines_component_name="load-data"
+```
+
+**Combined example — find errors in a specific pipeline run:**
+```
+labels.ml_pipelines_run_id="your-run-id"
+severity="ERROR"
+jsonPayload.message=~"deploy"
+```
