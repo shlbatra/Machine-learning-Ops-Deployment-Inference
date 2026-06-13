@@ -61,12 +61,14 @@ def download_model_from_gcs(gcs_path: str, local_path: str):
 async def load_model():
     global model
 
+    # MODEL_GCS_PATH (Cloud Run): points to the file, e.g. gs://.../model.joblib
+    # AIP_STORAGE_URI (Vertex AI Endpoints): points to a directory, e.g. gs://.../abc123/
+    # If neither is set, falls through to load from local MODEL_PATH.
     model_gcs_path = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
     model_path = os.getenv("MODEL_PATH", "/app/model_artifacts/model.joblib")
 
     try:
         if model_gcs_path:
-            # AIP_STORAGE_URI points to a directory, not a file
             if not model_gcs_path.endswith(".joblib"):
                 model_gcs_path = model_gcs_path.rstrip("/") + f"/{MODEL_FILENAME}"
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
