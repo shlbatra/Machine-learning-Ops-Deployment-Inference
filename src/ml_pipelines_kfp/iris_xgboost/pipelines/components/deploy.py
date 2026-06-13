@@ -1,9 +1,9 @@
 from kfp.dsl import Input, Model, component, Artifact, Output
-from ml_pipelines_kfp.iris_xgboost.constants import IMAGE_NAME
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
 @component(
-    base_image=IMAGE_NAME,
+    base_image=_constants.IMAGE_NAME,
     packages_to_install=[
         "google-cloud-aiplatform>=1.59.0",
         "google-cloud-run>=0.10.0",
@@ -224,7 +224,7 @@ def deploy_blessed_model_to_fastapi(
 
         try:
             # Test health endpoint first
-            health_response = requests.get(f"{service_url}/health", timeout=30)
+            health_response = requests.get(f"{service_url}/health/live", timeout=30)
             print(f"Health check status: {health_response.status_code}")
             if health_response.status_code == 200:
                 print(f"Health check response: {health_response.json()}")

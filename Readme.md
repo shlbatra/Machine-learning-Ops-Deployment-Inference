@@ -80,9 +80,26 @@ uv pip install -e .
 ### 2. Run Training Pipeline
 
 ```bash
-# Execute the training pipeline on Vertex AI
+# Execute the training pipeline on Vertex AI (uses defaults from constants.py)
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
+
+# Run with a specific Docker image (e.g. testing a branch build before merging)
+python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
+  --image-name us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:remove-old-server \
+  --fastapi-image-name us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:remove-old-server
+
+# Override other parameters as needed
+python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
+  --project-id my-other-project \
+  --region us-east1 \
+  --model-name Iris-Classifier-Test \
+  --pipeline-name pipeline-iris-test
+
+# See all available options
+python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py --help
 ```
+
+Parameters follow a precedence chain: **CLI flag > environment variable > constants.py default**.
 
 This will:
 - Load data from BigQuery

@@ -1,8 +1,10 @@
+import argparse
 import sys
 import os
 import kfp
 import google.cloud.aiplatform as aip
 from google.oauth2 import service_account
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 from ml_pipelines_kfp.iris_xgboost.constants import (
     PIPELINE_NAME,
     REPO_ROOT,
@@ -18,6 +20,10 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     BQ_TABLE,
     FASTAPI_IMAGE_NAME,
 )
+
+
+def coalesce(*args):
+    return next((a for a in args if a is not None), None)
 
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
@@ -71,7 +77,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         model=choose_model_op.outputs["best_model"],
         schema=schema_load.outputs["gcs_schema"],
         model_name=MODEL_NAME,
-        image_name=IMAGE_NAME,
+        image_name=FASTAPI_IMAGE_NAME,
     ).set_display_name("Register Model")
 
     deploy_model_op = (
@@ -88,32 +94,60 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
 
 
 if __name__ == "__main__":
-    # Set up authentication using service account
+    parser = argparse.ArgumentParser(
+        description="Compile and submit the Iris training pipeline to Vertex AI"
+    )
+    parser.add_argument("--project-id")
+    parser.add_argument("--region")
+    parser.add_argument("--pipeline-name")
+    parser.add_argument("--pipeline-root")
+    parser.add_argument("--model-name")
+    parser.add_argument("--image-name")
+    parser.add_argument("--fastapi-image-name")
+    parser.add_argument("--bq-dataset")
+    parser.add_argument("--bq-table")
+    parser.add_argument("--service-account")
+    parser.add_argument("--service-account-path")
+    cli = parser.parse_args()
+
+    # Resolve each param: CLI > env var > constants.py
+    # _constants.IMAGE_NAME needed: deploy.py/schema.py use it as base_image in @component decorator
+    IMAGE_NAME = _constants.IMAGE_NAME = coalesce(cli.image_name, _constants.IMAGE_NAME)
+    FASTAPI_IMAGE_NAME = coalesce(cli.fastapi_image_name, FASTAPI_IMAGE_NAME)
+    pipeline_name = coalesce(cli.pipeline_name, PIPELINE_NAME)
+    pipeline_root = coalesce(cli.pipeline_root, PIPELINE_ROOT)
+    bq_dataset = coalesce(cli.bq_dataset, BQ_DATASET)
+    bq_table = coalesce(cli.bq_table, BQ_TABLE)
+    MODEL_NAME = coalesce(cli.model_name, os.getenv("MODEL_NAME"), MODEL_NAME)
+    project_id = coalesce(cli.project_id, os.getenv("PROJECT_ID"), PROJECT_ID)
+    region = coalesce(cli.region, os.getenv("REGION"), REGION)
+    sa_email = coalesce(cli.service_account, os.getenv("SERVICE_ACCOUNT"), SERVICE_ACCOUNT)
+    sa_path = coalesce(cli.service_account_path, os.getenv("SERVICE_ACCOUNT_PATH"), SERVICE_ACCOUNT_PATH)
+
     credentials = service_account.Credentials.from_service_account_file(
-        filename=SERVICE_ACCOUNT_PATH,
+        filename=sa_path,
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    # Initialize Vertex AI with service account credentials
-    aip.init(project=PROJECT_ID, location=REGION, credentials=credentials)
+    aip.init(project=project_id, location=region, credentials=credentials)
 
     kfp.compiler.Compiler().compile(
         pipeline_func=pipeline,
         package_path="pipeline.yaml",
-        pipeline_name=PIPELINE_NAME,
+        pipeline_name=pipeline_name,
     )
 
     job = aip.PipelineJob(
-        display_name=PIPELINE_NAME,
+        display_name=pipeline_name,
         template_path="pipeline.yaml",
-        pipeline_root=PIPELINE_ROOT,
+        pipeline_root=pipeline_root,
         enable_caching=False,
         parameter_values={
-            "bq_dataset": BQ_DATASET,
-            "bq_table": BQ_TABLE,
-            "location": REGION,
-            "project_id": PROJECT_ID,
+            "bq_dataset": bq_dataset,
+            "bq_table": bq_table,
+            "location": region,
+            "project_id": project_id,
         },
         credentials=credentials,
     )
-    job.submit(service_account=SERVICE_ACCOUNT)
+    job.submit(service_account=sa_email)

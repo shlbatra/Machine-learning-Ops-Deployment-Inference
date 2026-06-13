@@ -79,6 +79,12 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 - Add `/predict_by_id` endpoint: accepts entity IDs to fetches features from online store to runs prediction
 - Existing `/predict` endpoint stays (raw feature input path still works)
 
+**Standardize health endpoint to `/health/live`**:
+- Modify `fastapi_server.py` (`components/fastapi/`) — rename `/health` to `/health/live`
+- This aligns with the Vertex AI `health_route="/health/live"` already set in `register.py`
+- Update the root `/` response to reference `/health/live` instead of `/health`
+- Update `deploy.py` health check test to call `/health/live`
+
 ### Step 7: Fix Batch Inference
 
 **Modify `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/inference.py`**:
@@ -120,6 +126,8 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 | Modify | `pipelines/iris_pipeline_inference.py` | Point to feature table |
 | Modify | `models/instance.py` | Canonical names + aliases + EntityInstance |
 | Modify | `server.py` | Add `/predict_by_id` endpoint |
+| Modify | `pipelines/components/fastapi/fastapi_server.py` | Rename `/health` to `/health/live`, update root response |
+| Modify | `pipelines/components/deploy.py` | Update health check test to `/health/live` |
 | Modify | `dataflow/iris_streaming_pipeline.py` | Use canonical column names |
 | Modify | `pyproject.toml` | Bump aiplatform version |
 | Modify | `Readme.md` | Feature Store docs |
