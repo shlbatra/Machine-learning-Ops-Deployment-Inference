@@ -26,6 +26,8 @@ This repository implements a complete ML pipeline for the Iris dataset classific
 
 ```
 src/ml_pipelines_kfp/
+├── constants.py            # Shared GCP settings (project, region, bucket, env)
+├── log.py                  # Shared JSON logging helper
 ├── iris_xgboost/           # Main Iris classification implementation
 │   ├── pipelines/          # KFP pipeline definitions
 │   │   ├── components/     # Reusable pipeline components
@@ -33,11 +35,10 @@ src/ml_pipelines_kfp/
 │   │   └── iris_pipeline_inference.py
 │   ├── models/             # Pydantic models for API
 │   ├── bq_dataloader.py    # BigQuery data loading utility
-│   └── constants.py        # Configuration constants (image names, project settings)
-├── workflows/              # Alternative workflow implementations
-└── notebooks/              # Example notebooks and experiments
+│   └── constants.py        # Iris-specific constants (model name, BQ tables, env branching)
 ├── dataflow/               # Dataflow streaming pipelines
 │   └── iris_streaming_pipeline.py
+└── notebooks/              # Example notebooks and experiments
 schemas/                    # Input/output schemas for Vertex AI
 Dockerfile                  # Container definition
 pyproject.toml              # Project dependencies
@@ -67,6 +68,24 @@ cd ml_pipelines_kfp
 uv pip install -e .
 ```
 
+## Environments
+
+The project supports two environments controlled by the `ENVIRONMENT` env var:
+
+| | Staging (default) | Production |
+|---|---|---|
+| `ENVIRONMENT` | `staging` | `prod` |
+| Pipeline name | `pipeline-iris-staging` | `pipeline-iris-prod` |
+| Model name | `Iris-Classifier-XGBoost-staging` | `Iris-Classifier-XGBoost` |
+| Image tag | `<branch>` | `main` |
+| Cloud Run service | `iris-classifier-xgboost-service-staging` | `iris-classifier-xgboost-service` |
+| BQ predictions table | `iris_predictions_staging` | `iris_predictions` |
+| GCS pipeline root | `gs://sb-vertex/staging/pipeline_root` | `gs://sb-vertex/prod/pipeline_root` |
+
+**Shared across environments:** BQ dataset (`ml_dataset`), training table (`iris`), Pub/Sub topic (`iris-inference-data`).
+
+Safe default: if `ENVIRONMENT` is not set, staging is used — you can't accidentally pollute prod.
+
 ## Usage
 
 ### 1. Load Training Data to BigQuery
@@ -78,16 +97,32 @@ uv pip install -e .
 
 ### 2. Run Training Pipeline
 
+#### Staging
+
+Run after CI builds branch-tagged images:
+
 ```bash
-# Execute the training pipeline on Vertex AI (uses defaults from constants.py)
-python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
-
-# Run with a feature branch image (e.g. testing before merging to main)
-PIPELINE_BASE_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:my-branch \
-PIPELINE_FASTAPI_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:my-branch \
+ENVIRONMENT=staging \
+PIPELINE_BASE_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:<branch> \
+PIPELINE_FASTAPI_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:<branch> \
   python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
+```
 
-# Override other parameters as needed
+This creates pipeline `pipeline-iris-staging`, registers model `Iris-Classifier-XGBoost-staging`, and deploys to Cloud Run service `iris-classifier-xgboost-service-staging`.
+
+#### Production
+
+Run after merging to main and CI builds `main`-tagged images:
+
+```bash
+ENVIRONMENT=prod python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
+```
+
+This creates pipeline `pipeline-iris-prod`, registers model `Iris-Classifier-XGBoost`, and deploys to Cloud Run service `iris-classifier-xgboost-service`.
+
+#### CLI overrides
+
+```bash
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
   --project-id my-other-project \
   --region us-east1 \
@@ -98,36 +133,44 @@ python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
 python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py --help
 ```
 
-**Image configuration:** `PIPELINE_BASE_IMAGE` and `PIPELINE_FASTAPI_IMAGE` env vars control which Docker images are baked into the compiled pipeline. KFP resolves `base_image` at compile time, so these must be set before running the script. Without them, defaults to `:main` and `:latest` from `constants.py`.
-
-This will:
-- Load data from BigQuery
-- Train Decision Tree and Random Forest models in parallel
-- Evaluate and select the best model
-- Register the model in Vertex AI Model Registry with "blessed" alias
-- Deploy the blessed model to FastAPI service on Cloud Run
+**Image configuration:** `PIPELINE_BASE_IMAGE` and `PIPELINE_FASTAPI_IMAGE` env vars control which Docker images are baked into the compiled pipeline. KFP resolves `base_image` at compile time, so these must be set before running the script. Staging defaults to the branch tag; production defaults to `main`.
 
 ### 3. Run Batch Inference Pipeline
 
+#### Staging
+
 ```bash
-# Execute batch inference
-python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference.py
+ENVIRONMENT=staging \
+PIPELINE_BASE_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:<branch> \
+  python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference.py
 ```
+
+Predictions are written to `ml_dataset.iris_predictions_staging`.
+
+#### Production
+
+```bash
+ENVIRONMENT=prod python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_inference.py
+```
+
+Predictions are written to `ml_dataset.iris_predictions`.
 
 ### 4. Real-time Streaming Inference
 
 Deploy a Dataflow streaming job for real-time inference:
 
 ```bash
-# Deploy streaming pipeline (update SERVICE_URL with actual Cloud Run URL)
-./deploy_dataflow_streaming.sh
+# Staging — writes to ml_dataset.iris_predictions_streaming_staging
+./scripts/deploy_dataflow_streaming.sh staging
+
+# Production — writes to ml_dataset.iris_predictions_streaming
+./scripts/deploy_dataflow_streaming.sh prod
 ```
 
 Start generating test data:
 
 ```bash
-# Run data producer to send samples to Pub/Sub
-python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py
+python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py --project-id=deeplearning-sahil
 ```
 
 ## Development
@@ -148,6 +191,33 @@ mypy src/
 
 ## Architecture
 
+```
+                    Push to feature branch          Merge to main
+                           |                              |
+                    [GitHub Actions]                [GitHub Actions]
+                           |                              |
+                  Build images:<branch>           Build images:main
+                           |                              |
+                  Run KFP pipeline              Run KFP pipeline
+                  ENV=staging                     ENV=prod
+                           |                              |
+              +------------+----------+       +-----------+-----------+
+              |                       |       |                       |
+        [Training]              [Inference]  [Training]           [Inference]
+              |                       |       |                       |
+    Model Registry:                          Model Registry:
+    XGBoost-staging                          XGBoost
+              |                                    |
+    Cloud Run:                              Cloud Run:
+    ...-service-staging                     ...-service
+              |                                    |
+    Dataflow:staging                        Dataflow:prod
+              \                                   /
+               \                                 /
+                +--- Shared: BQ:ml_dataset -----+
+                +--- Shared: PubSub:iris-inference-data ---+
+```
+
 The project follows a component-based architecture where each ML pipeline step is a self-contained KFP component:
 
 1. **Data Component**: Loads and splits data from BigQuery
@@ -160,19 +230,22 @@ The project follows a component-based architecture where each ML pipeline step i
 
 ## Configuration
 
-Key configuration is managed in `src/ml_pipelines_kfp/iris_xgboost/constants.py`:
-- Project ID: `deeplearning-sahil`
-- Region: `us-central1`
-- Dataset: `ml_datasets.iris`
-- Model naming and versioning
+Configuration is split across two files:
+
+- **`src/ml_pipelines_kfp/constants.py`** — shared GCP settings (project ID, region, bucket, service account, `ENV`)
+- **`src/ml_pipelines_kfp/iris_xgboost/constants.py`** — iris-specific settings (model name, BQ tables, image names, env-specific branching)
+
+Set `ENVIRONMENT=staging` or `ENVIRONMENT=prod` to switch all resource names. Defaults to `staging`.
 
 ## CI/CD
 
-The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) when pushing to main branch that:
-- Builds Docker images for KFP components
-- Builds generic FastAPI inference containers
+The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) that:
+- Builds Docker images for KFP components and FastAPI inference containers
+- Tags images with the branch name (e.g. `fix-logging` for feature branches, `main` for production)
 - Pushes to Google Artifact Registry
-- Triggers on pushes to main branch
+- Triggers on every push to any branch
+
+Pipelines are submitted locally after CI builds the images — no automated pipeline deployment in CI.
 
 ## Technologies
 

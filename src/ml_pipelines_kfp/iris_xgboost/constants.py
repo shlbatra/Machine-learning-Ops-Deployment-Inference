@@ -1,37 +1,40 @@
 import os
-from pathlib import Path
 
-PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = str(
-    Path(PACKAGE_ROOT).parent.parent.parent.absolute()
-)  # "ml_pipelines_kfp"
-SERVICE_ACCOUNT_PATH = os.path.join(REPO_ROOT, "deeplearning-sahil-e50332de6687.json")
+from ml_pipelines_kfp.constants import (  # noqa: F401
+    BUCKET, ENV, PROJECT_ID, REGION, REPO_ROOT, SERVICE_ACCOUNT, SERVICE_ACCOUNT_PATH,
+)
 
-# Project settings
-BUCKET = "gs://sb-vertex"
-PIPELINE_NAME = "pipeline-iris"
-PIPELINE_ROOT = f"{BUCKET}/pipeline_root"
-REGION = "us-central1"
-PROJECT_ID = "deeplearning-sahil"
-SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
-MODEL_NAME = "Iris-Classifier-XGBoost"
-ENDPOINT_NAME = "Iris-Classifier-XGBoost"
+# --- Shared across environments ---
+BQ_DATASET = "ml_dataset"
+BQ_TABLE = "iris"
+PUBSUB_TOPIC = "iris-inference-data"
+PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
+
+# --- Environment-specific ---
+if ENV == "prod":
+    PIPELINE_NAME = "pipeline-iris-prod"
+    PIPELINE_ROOT = f"{BUCKET}/prod/pipeline_root"
+    MODEL_NAME = "Iris-Classifier-XGBoost"
+    BQ_TABLE_PREDICTIONS = "iris_predictions"
+    BQ_TABLE_PREDICTIONS_STREAMING = "iris_predictions_streaming"
+    _DEFAULT_IMAGE_TAG = "main"
+else:  # staging
+    PIPELINE_NAME = "pipeline-iris-staging"
+    PIPELINE_ROOT = f"{BUCKET}/staging/pipeline_root"
+    MODEL_NAME = "Iris-Classifier-XGBoost-staging"
+    BQ_TABLE_PREDICTIONS = "iris_predictions_staging"
+    BQ_TABLE_PREDICTIONS_STREAMING = "iris_predictions_streaming_staging"
+    _DEFAULT_IMAGE_TAG = os.getenv("BUILD_BRANCH", "staging")
+
 IMAGE_NAME = os.getenv(
     "PIPELINE_BASE_IMAGE",
-    "us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:main",
+    f"us-docker.pkg.dev/{PROJECT_ID}/sahil-experiment-docker-images/ml-pipelines-kfp-image:{_DEFAULT_IMAGE_TAG}",
 )
 FASTAPI_IMAGE_NAME = os.getenv(
     "PIPELINE_FASTAPI_IMAGE",
-    "us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:latest",
+    f"us-docker.pkg.dev/{PROJECT_ID}/sahil-experiment-docker-images/fastapi-ml-generic:{_DEFAULT_IMAGE_TAG}",
 )
+
+ENDPOINT_NAME = MODEL_NAME
 MODEL_FILENAME = "model.joblib"
-
-# BigQuery settings
-BQ_DATASET = "ml_dataset"
-BQ_TABLE = "iris"
-BQ_TABLE_PREDICTIONS = "iris_predictions"
-
-# Cloud Pub/Sub settings
-PUBSUB_TOPIC = "iris-inference-data"
-PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
-PUBSUB_REGION = REGION  # us-central1
+PUBSUB_REGION = REGION

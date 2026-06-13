@@ -14,60 +14,72 @@ Every GCP resource gets an environment suffix/prefix:
 | KFP pipeline display name | `pipeline-iris-staging` | `pipeline-iris-prod` |
 | GCS pipeline root | `gs://sb-vertex/staging/pipeline_root` | `gs://sb-vertex/prod/pipeline_root` |
 | GCS deployed models | `gs://sb-vertex/staging/deployed-models/` | `gs://sb-vertex/prod/deployed-models/` |
-| BQ dataset | `ml_dataset_staging` | `ml_dataset` (keep current as prod) |
-| BQ predictions table | `ml_dataset_staging.iris_predictions` | `ml_dataset.iris_predictions` |
+| BQ dataset | `ml_dataset` | `ml_dataset` |
+| BQ training table | `ml_dataset.iris` | `ml_dataset.iris` |
+| BQ predictions table | `ml_dataset.iris_predictions_staging` | `ml_dataset.iris_predictions` |
+| BQ streaming predictions table | `ml_dataset.iris_predictions_streaming_staging` | `ml_dataset.iris_predictions_streaming` |
 | Cloud Run service | `iris-classifier-xgboost-service-staging` | `iris-classifier-xgboost-service` |
 | Vertex AI model name | `Iris-Classifier-XGBoost-staging` | `Iris-Classifier-XGBoost` |
 | Vertex AI model alias | `blessed` (within staging model) | `blessed` (within prod model) |
-| Pub/Sub topic | `iris-inference-data-staging` | `iris-inference-data` |
+| Pub/Sub topic | `iris-inference-data` | `iris-inference-data` |
+| Pub/Sub subscription | `iris-inference-data-sub` | `iris-inference-data-sub` |
 | Dataflow job | `iris-streaming-inference-staging-*` | `iris-streaming-inference-*` |
 
 ---
 
-## 2. constants.py Changes
+## 2. Constants Changes
 
-Add an `ENV` parameter that drives all resource names. The environment is resolved from: CLI arg > `ENVIRONMENT` env var > default `"staging"`.
+Split constants into two files: a root-level file for shared GCP settings reusable across ML projects, and the existing project-specific file for iris pipeline settings.
+
+### 2a. New root-level constants: `src/ml_pipelines_kfp/constants.py`
 
 ```python
-# New constants.py structure
-
 import os
 from pathlib import Path
 
 PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = str(Path(PACKAGE_ROOT).parent.parent.parent.absolute())
+REPO_ROOT = str(Path(PACKAGE_ROOT).parent.parent.absolute())
 SERVICE_ACCOUNT_PATH = os.path.join(REPO_ROOT, "deeplearning-sahil-e50332de6687.json")
 
-# --- Environment ---
-ENV = os.getenv("ENVIRONMENT", "staging")  # "staging" or "prod"
-
-# --- Project settings (shared) ---
 PROJECT_ID = "deeplearning-sahil"
 REGION = "us-central1"
+BUCKET = "gs://sb-vertex"
 SERVICE_ACCOUNT = "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
 
-# --- Environment-specific settings ---
-BUCKET = "gs://sb-vertex"
+ENV = os.getenv("ENVIRONMENT", "staging")  # "staging" or "prod"
+```
 
+### 2b. Updated project constants: `src/ml_pipelines_kfp/iris_xgboost/constants.py`
+
+Import shared settings from root. Environment-specific resource names are driven by `ENV`.
+
+```python
+import os
+
+from ml_pipelines_kfp.constants import (  # noqa: F401
+    BUCKET, ENV, PROJECT_ID, REGION, REPO_ROOT, SERVICE_ACCOUNT, SERVICE_ACCOUNT_PATH,
+)
+
+# --- Shared across environments ---
+BQ_DATASET = "ml_dataset"
+BQ_TABLE = "iris"
+PUBSUB_TOPIC = "iris-inference-data"
+PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
+
+# --- Environment-specific ---
 if ENV == "prod":
     PIPELINE_NAME = "pipeline-iris-prod"
     PIPELINE_ROOT = f"{BUCKET}/prod/pipeline_root"
     MODEL_NAME = "Iris-Classifier-XGBoost"
-    BQ_DATASET = "ml_dataset"
-    BQ_TABLE = "iris"
     BQ_TABLE_PREDICTIONS = "iris_predictions"
-    PUBSUB_TOPIC = "iris-inference-data"
-    PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
+    BQ_TABLE_PREDICTIONS_STREAMING = "iris_predictions_streaming"
     _DEFAULT_IMAGE_TAG = "main"
 else:  # staging
     PIPELINE_NAME = "pipeline-iris-staging"
     PIPELINE_ROOT = f"{BUCKET}/staging/pipeline_root"
     MODEL_NAME = "Iris-Classifier-XGBoost-staging"
-    BQ_DATASET = "ml_dataset_staging"
-    BQ_TABLE = "iris"
-    BQ_TABLE_PREDICTIONS = "iris_predictions"
-    PUBSUB_TOPIC = "iris-inference-data-staging"
-    PUBSUB_SUBSCRIPTION = "iris-inference-data-staging-sub"
+    BQ_TABLE_PREDICTIONS = "iris_predictions_staging"
+    BQ_TABLE_PREDICTIONS_STREAMING = "iris_predictions_streaming_staging"
     _DEFAULT_IMAGE_TAG = os.getenv("BUILD_BRANCH", "staging")
 
 IMAGE_NAME = os.getenv(
@@ -84,10 +96,13 @@ MODEL_FILENAME = "model.joblib"
 PUBSUB_REGION = REGION
 ```
 
+The `# noqa: F401` re-export means all existing `from ml_pipelines_kfp.iris_xgboost.constants import PROJECT_ID, ...` imports continue to work with no downstream changes.
+
 Key behavior:
 - Staging defaults to the branch-specific image tag (from `BUILD_BRANCH` env var set by CI)
 - Prod always uses the `main` tag
 - Safe default: if you forget to set `ENVIRONMENT`, you get staging (can't accidentally pollute prod)
+- Root constants (`ml_pipelines_kfp.constants`) can be imported directly by future ML projects without depending on `iris_xgboost`
 
 ---
 
@@ -97,72 +112,32 @@ Key behavior:
 
 No change needed to the build step. Branch pushes already tag images with the branch name (e.g. `fix-logging`), which is exactly what staging needs.
 
-### 3b. Add staging pipeline trigger (on non-main branches)
+### 3b. Staging pipeline runs (local)
 
-Add a new job that compiles and submits the training + inference pipelines in staging mode after the image build succeeds:
+No CI job needed for staging. Once images are built by CI, run the staging pipeline locally:
 
-```yaml
-  deploy-staging:
-    needs: build
-    if: github.ref_name != 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-
-      - name: Install dependencies
-        run: pip install uv && uv pip install -e . --system
-
-      - name: Submit training pipeline (staging)
-        env:
-          ENVIRONMENT: staging
-          BUILD_BRANCH: ${{ env.IMAGE_TAG }}
-        run: |
-          python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py \
-            --image-name "us-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" \
-            --fastapi-image-name "us-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.FASTAPI_IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+```bash
+ENVIRONMENT=staging \
+PIPELINE_BASE_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/ml-pipelines-kfp-image:<branch> \
+PIPELINE_FASTAPI_IMAGE=us-docker.pkg.dev/deeplearning-sahil/sahil-experiment-docker-images/fastapi-ml-generic:<branch> \
+  python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
 ```
 
-### 3c. Add production pipeline trigger (on merge to main)
+### 3c. Production pipeline runs (local)
 
-```yaml
-  deploy-prod:
-    needs: build
-    if: github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+No CI job needed for production either. After merging to main and CI builds the `main`-tagged images, run the production pipeline locally:
 
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-
-      - name: Install dependencies
-        run: pip install uv && uv pip install -e . --system
-
-      - name: Submit training pipeline (prod)
-        env:
-          ENVIRONMENT: prod
-        run: |
-          python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
+```bash
+ENVIRONMENT=prod \
+  python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
 ```
 
 ### 3d. Full trigger summary
 
 | Event | Images built | Pipeline submitted | Environment |
 |---|---|---|---|
-| Push to feature branch | `<branch>` tag | Training pipeline | staging |
-| PR opened/updated | `<branch>` tag | None (build-only validation) | - |
-| Merge to main | `main` tag | Training pipeline | prod |
+| Push to feature branch | `<branch>` tag | None (run locally) | staging |
+| Merge to main | `main` tag | None (run locally) | prod |
 
 ---
 
@@ -200,68 +175,58 @@ Both live in the same project. The `blessed` alias works independently on each m
 
 ### Promotion flow (staging -> prod)
 
-Promotion is simply: merge the branch to `main`. The `deploy-prod` CI job runs the training pipeline with `ENVIRONMENT=prod`, which:
-1. Trains on `ml_dataset.iris` (prod BQ dataset)
-2. Registers the model as `Iris-Classifier-XGBoost` (prod model name)
-3. Deploys to `iris-classifier-xgboost-service` (prod Cloud Run)
+Promotion is simply: merge the branch to `main`, wait for CI to build the `main`-tagged images, then run the pipeline locally:
+
+```bash
+ENVIRONMENT=prod python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py
+```
+
+This will:
+1. Train on `ml_dataset.iris` (shared BQ dataset)
+2. Register the model as `Iris-Classifier-XGBoost` (prod model name)
+3. Deploy to `iris-classifier-xgboost-service` (prod Cloud Run)
 
 This is a full retrain-on-prod-data approach, not a model copy. Staging validates the code/pipeline; prod retrains on prod data.
 
 ---
 
-## 6. BigQuery Dataset Isolation
+## 6. BigQuery Dataset
 
-### One-time setup: create the staging dataset
+Staging and production share the same BQ dataset (`ml_dataset`) and training table (`iris`). Predictions tables are environment-specific to avoid staging writes polluting production data.
 
-```bash
-bq mk --dataset \
-  --location=us-central1 \
-  --description="Staging dataset for ML pipelines" \
-  deeplearning-sahil:ml_dataset_staging
-```
-
-Copy the iris table schema (or a subset of data) into staging:
-
-```bash
-bq cp ml_dataset.iris ml_dataset_staging.iris
-```
-
-### Table layout
-
-| Dataset | Tables | Purpose |
+| Dataset | Table | Used by |
 |---|---|---|
-| `ml_dataset` | `iris`, `iris_predictions`, `iris_predictions_streaming` | Production |
-| `ml_dataset_staging` | `iris`, `iris_predictions`, `iris_predictions_streaming` | Staging |
+| `ml_dataset` | `iris` | Both (shared training data) |
+| `ml_dataset` | `iris_predictions` | Production |
+| `ml_dataset` | `iris_predictions_staging` | Staging |
+| `ml_dataset` | `iris_predictions_streaming` | Production |
+| `ml_dataset` | `iris_predictions_streaming_staging` | Staging |
+
+Staging predictions tables are auto-created on first write — no one-time setup needed.
 
 ---
 
 ## 7. Pub/Sub + Dataflow (Streaming Inference)
 
-### Staging topic/subscription setup
-
-```bash
-gcloud pubsub topics create iris-inference-data-staging --project=deeplearning-sahil
-gcloud pubsub subscriptions create iris-inference-data-staging-sub \
-  --topic=iris-inference-data-staging --project=deeplearning-sahil
-```
+Staging and production share the same Pub/Sub topic (`iris-inference-data`) and subscription (`iris-inference-data-sub`). No separate topic setup needed.
 
 ### Dataflow job isolation
 
-Update `scripts/deploy_dataflow_streaming.sh` to accept an environment parameter:
+Environment isolation for streaming is at the Dataflow job and Cloud Run service layer. Update `scripts/deploy_dataflow_streaming.sh` to accept an environment parameter:
 
 ```bash
 ENV=${1:-staging}
 
+TOPIC="iris-inference-data"
+
 if [ "$ENV" = "prod" ]; then
-  TOPIC="iris-inference-data"
-  BQ_TABLE="ml_dataset.iris_predictions_streaming"
   SERVICE_URL="<prod-cloud-run-url>"
   JOB_PREFIX="iris-streaming-inference"
+  BQ_TABLE="ml_dataset.iris_predictions_streaming"
 else
-  TOPIC="iris-inference-data-staging"
-  BQ_TABLE="ml_dataset_staging.iris_predictions_streaming"
   SERVICE_URL="<staging-cloud-run-url>"
   JOB_PREFIX="iris-streaming-inference-staging"
+  BQ_TABLE="ml_dataset.iris_predictions_streaming_staging"
 fi
 ```
 
@@ -291,9 +256,8 @@ ENVIRONMENT=prod python iris_pipeline_inference.py
 ## 9. Implementation Order
 
 ### Phase 1: Resource setup (one-time, manual)
-1. Create `ml_dataset_staging` BQ dataset + copy iris table
-2. Create staging Pub/Sub topic and subscription
-3. Verify both staging and prod images exist in Artifact Registry
+1. Verify both staging and prod images exist in Artifact Registry
+2. BQ dataset and Pub/Sub topic/subscription are shared — no setup needed
 
 ### Phase 2: Code changes
 1. Refactor `constants.py` with `ENV` parameter (as shown in section 2)
@@ -309,10 +273,10 @@ ENVIRONMENT=prod python iris_pipeline_inference.py
 ### Phase 4: Validation
 1. Push a feature branch, verify staging pipeline runs with branch-tagged image
 2. Verify staging Cloud Run service is created with `-staging` suffix
-3. Verify staging BQ predictions land in `ml_dataset_staging`
+3. Verify staging BQ predictions land in `ml_dataset.iris_predictions_staging`
 4. Merge to main, verify prod pipeline runs with `main`-tagged image
 5. Verify prod Cloud Run service is unchanged
-6. Test streaming inference on both staging and prod topics
+6. Test streaming inference on shared Pub/Sub topic with both staging and prod Dataflow jobs
 
 ---
 
@@ -332,14 +296,17 @@ ENVIRONMENT=prod python iris_pipeline_inference.py
               |                       |       |                       |
         [Training]              [Inference]  [Training]           [Inference]
               |                       |       |                       |
-    Model Registry:             BQ:staging   Model Registry:       BQ:prod
+    Model Registry:                          Model Registry:
     XGBoost-staging                          XGBoost
               |                                    |
     Cloud Run:                              Cloud Run:
     ...-service-staging                     ...-service
               |                                    |
     Dataflow:staging                        Dataflow:prod
-    PubSub:staging                          PubSub:prod
+              \                                   /
+               \                                 /
+                +--- Shared: BQ:ml_dataset -----+
+                +--- Shared: PubSub:iris-inference-data ---+
 ```
 
 ---
@@ -351,6 +318,8 @@ These resources are intentionally shared across both environments:
 - **Service account**: `kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com`
 - **Artifact Registry repo**: `sahil-experiment-docker-images` (images for both envs live here, separated by tag)
 - **GCS bucket**: `gs://sb-vertex` (paths isolated by `staging/` vs `prod/` prefix)
+- **BQ dataset**: `ml_dataset` (shared dataset; training table shared, predictions tables are env-specific)
+- **Pub/Sub topic**: `iris-inference-data` and subscription `iris-inference-data-sub`
 - **Region**: `us-central1`
 
 ---
@@ -360,5 +329,6 @@ These resources are intentionally shared across both environments:
 Since both environments share a single project:
 - Cloud Run staging services can scale to 0 (already configured with `min_instance_count: 0`)
 - Staging Dataflow jobs can be manually started/stopped (not always-on)
-- Staging BQ storage is minimal (same schema, can use smaller data subsets)
+- BQ dataset is shared — only predictions tables are duplicated (minimal storage overhead)
+- Pub/Sub topic is shared — no duplicate infrastructure
 - Vertex AI Pipeline runs are the main cost driver - staging pipelines run on every branch push, so consider adding a path filter to only trigger when `src/` files change
