@@ -13,6 +13,11 @@ def load_data(
     import pandas as pd
     from google.cloud import bigquery
     from sklearn.model_selection import train_test_split
+    from ml_pipelines_kfp.log import get_logger
+
+    logger = get_logger(__name__)
+
+    logger.info("Setup loading data from {bq_dataset}.{bq_table}")
 
     client = bigquery.Client()
 
