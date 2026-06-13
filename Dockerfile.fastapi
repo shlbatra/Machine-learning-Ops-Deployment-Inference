@@ -14,9 +14,10 @@ RUN apt-get update \
 COPY requirements.fastapi.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy FastAPI application and Pydantic models
+# Copy FastAPI application, Pydantic models, and shared logging
 COPY src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/fastapi_server.py main.py
 COPY src/ml_pipelines_kfp/iris_xgboost/models/ models/
+COPY src/ml_pipelines_kfp/log.py log.py
 
 # Create and use non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app

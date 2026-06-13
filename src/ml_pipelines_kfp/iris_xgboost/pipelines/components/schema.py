@@ -3,7 +3,7 @@ import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
 @component(
-    base_image=_constants.IMAGE_NAME, packages_to_install=["fsspec==2024.6.1", "gcsfs==2024.6.1"]
+    base_image=_constants.IMAGE_NAME,
 )
 def load_schema(
     repo_root: str,

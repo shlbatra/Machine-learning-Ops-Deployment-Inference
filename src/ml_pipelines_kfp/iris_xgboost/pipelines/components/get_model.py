@@ -1,15 +1,8 @@
 from kfp.dsl import Input, Model, component, Output
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
-@component(
-    base_image="python:3.10",
-    packages_to_install=[
-        "google-cloud-aiplatform==1.64.0",
-        "fsspec==2024.6.1",
-        "gcsfs==2024.6.1",
-        "joblib==1.4.2",
-    ],
-)
+@component(base_image=_constants.IMAGE_NAME)
 def get_model(
     project_id: str,
     location: str,
@@ -20,6 +13,9 @@ def get_model(
     import fsspec
     import gcsfs
     import joblib
+    from ml_pipelines_kfp.log import get_logger
+
+    logger = get_logger(__name__)
 
     aiplatform.init(project=project_id, location=location)
 
@@ -35,20 +31,15 @@ def get_model(
     parent_model = parent_models[0] if parent_models else None
 
     if not parent_model:
-        print(f"Could not find model with f{model_name}")
+        logger.error(f"Could not find model: {model_name}")
         return
 
-    print(f"Parent Model - {parent_model}")
-    print(f"class - {type(parent_model)}")
-    print(f"name - {parent_model.name}")
-    print(f"model path- {parent_model.artifact_uri}")
-    print(f"output model path - {latest_model.path}")
+    logger.info(f"Found model: {parent_model.name}, artifact_uri: {parent_model.artifact_uri}")
+
     latest_model_path = latest_model.path.replace("/gcs/", "gs://")
-    print(f"output model path cleaned - {latest_model_path}")
     fs, _ = fsspec.core.url_to_fs(parent_model.artifact_uri)
-    print(f"file system: {fs}")
     fs.copy(
         parent_model.artifact_uri + "/",
-        latest_model.path.replace("/gcs/", "gs://"),
+        latest_model_path,
         recursive=True,
     )

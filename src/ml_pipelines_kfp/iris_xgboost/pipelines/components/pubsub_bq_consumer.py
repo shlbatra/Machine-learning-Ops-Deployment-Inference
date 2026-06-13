@@ -1,6 +1,7 @@
 import kfp
 from kfp import dsl
 from typing import NamedTuple
+import ml_pipelines_kfp.iris_xgboost.constants as _constants
 
 
 def pubsub_data_source(
@@ -16,18 +17,7 @@ def pubsub_data_source(
     Kubeflow component that consumes data from Pub/Sub topic and stores in BigQuery.
     """
 
-    @dsl.component(
-        base_image="python:3.10-slim",
-        packages_to_install=[
-            "google-cloud-pubsub==2.18.1",
-            "google-cloud-bigquery==3.11.4",
-            "numpy==1.24.3",
-            "pandas==2.0.3",
-            "pyarrow==12.0.1",
-            "google-auth==2.23.3",
-            "db-dtypes==1.1.1",
-        ],
-    )
+    @dsl.component(base_image=_constants.IMAGE_NAME)
     def pubsub_consumer_op(
         project_id: str,
         topic_name: str,
@@ -50,15 +40,12 @@ def pubsub_data_source(
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
 
-        # Initialize clients with explicit project ID
         subscriber = pubsub_v1.SubscriberClient()
         bq_client = bigquery.Client(project=project_id)
 
-        # Create subscription path
         subscription_path = subscriber.subscription_path(project_id, subscription_name)
         topic_path = subscriber.topic_path(project_id, topic_name)
 
-        # Create subscription if it doesn't exist
         try:
             subscriber.get_subscription(request={"subscription": subscription_path})
             logger.info(f"Subscription {subscription_path} already exists")
@@ -76,10 +63,8 @@ def pubsub_data_source(
                 logger.error(f"Failed to create subscription: {e}")
                 raise
 
-        # BigQuery setup
         table_id = f"{project_id}.{bq_dataset}.{bq_table}"
 
-        # Create BigQuery table if it doesn't exist
         schema = [
             bigquery.SchemaField("sepal_length", "FLOAT", mode="REQUIRED"),
             bigquery.SchemaField("sepal_width", "FLOAT", mode="REQUIRED"),
@@ -99,17 +84,14 @@ def pubsub_data_source(
             table = bq_client.create_table(table)
             logger.info(f"Created table {table_id}")
 
-        # Message processing
         consumed_data = []
         start_time = time.time()
 
         def callback(message):
             """Process individual Pub/Sub message."""
             try:
-                # Parse message data
                 data = json.loads(message.data.decode("utf-8"))
 
-                # Keep snake_case column names to match table schema
                 transformed_data = {
                     "sepal_length": data.get("sepal_length"),
                     "sepal_width": data.get("sepal_width"),
@@ -127,43 +109,36 @@ def pubsub_data_source(
                     f"Consumed message: {data['sample_id']} (ID: {message.message_id})"
                 )
 
-                # Acknowledge the message
                 message.ack()
 
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 message.nack()
 
-        # Configure flow control
         flow_control = pubsub_v1.types.FlowControl(max_messages=batch_size * 2)
 
         logger.info(f"Starting Pub/Sub consumer for topic: {topic_name}")
 
         try:
-            # Start pulling messages
             streaming_pull_future = subscriber.subscribe(
                 subscription_path, callback=callback, flow_control=flow_control
             )
 
             logger.info(f"Listening for messages on {subscription_path}...")
 
-            # Process messages until batch size or timeout
             while (
                 len(consumed_data) < batch_size
                 and (time.time() - start_time) < timeout_seconds
             ):
-                time.sleep(1)  # Check every second
+                time.sleep(1)
 
-            # Cancel the subscriber
             streaming_pull_future.cancel()
 
-            # Process collected data
             if consumed_data:
                 df = pd.DataFrame(consumed_data)
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df["ingestion_time"] = pd.to_datetime(df["ingestion_time"])
 
-                # Load to BigQuery
                 job_config = bigquery.LoadJobConfig(
                     write_disposition="WRITE_APPEND", schema=schema
                 )
@@ -184,7 +159,6 @@ def pubsub_data_source(
         finally:
             logger.info("Pub/Sub consumer finished")
 
-        # Set output dataset metadata
         dataset.uri = f"bq://{table_id}"
         dataset.metadata = {
             "total_records": len(consumed_data),

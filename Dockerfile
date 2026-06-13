@@ -21,7 +21,9 @@ COPY . /app
 
 # Install dependencies using uv
 RUN uv venv
-RUN . .venv/bin/activate && uv pip install -e .
+ENV PATH="/app/.venv/bin:$PATH"
+RUN uv pip install pip
+RUN uv pip install -e .
 
 ARG BUILD_COMMIT="unknown"
 ARG BUILD_BRANCH="main"

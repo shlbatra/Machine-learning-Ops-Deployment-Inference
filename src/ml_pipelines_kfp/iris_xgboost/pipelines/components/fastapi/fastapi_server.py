@@ -5,15 +5,15 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
 import os
-import logging
 import uvicorn
 from google.cloud import storage
 
 from models.instance import Instance
 from models.prediction import Prediction
+from log import get_logger
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
 app = FastAPI(
     title="ML Model Inference API",
@@ -61,9 +61,6 @@ def download_model_from_gcs(gcs_path: str, local_path: str):
 async def load_model():
     global model
 
-    # MODEL_GCS_PATH (Cloud Run): points to the file, e.g. gs://.../model.joblib
-    # AIP_STORAGE_URI (Vertex AI Endpoints): points to a directory, e.g. gs://.../abc123/
-    # If neither is set, falls through to load from local MODEL_PATH.
     model_gcs_path = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
     model_path = os.getenv("MODEL_PATH", "/app/model_artifacts/model.joblib")
 
@@ -126,7 +123,7 @@ async def predict(request: PredictionRequest):
         return PredictionResponse(predictions=results)
 
     except Exception as e:
-        logging.error(f"Prediction error: {e}")
+        logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 
 
