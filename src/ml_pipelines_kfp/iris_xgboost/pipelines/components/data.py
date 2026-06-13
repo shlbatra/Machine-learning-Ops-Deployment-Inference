@@ -17,7 +17,7 @@ def load_data(
 
     logger = get_logger(__name__)
 
-    logger.info("Setup loading data from {bq_dataset}.{bq_table}")
+    logger.info(f"Setup loading data from {bq_dataset}.{bq_table}")
 
     client = bigquery.Client()
 
