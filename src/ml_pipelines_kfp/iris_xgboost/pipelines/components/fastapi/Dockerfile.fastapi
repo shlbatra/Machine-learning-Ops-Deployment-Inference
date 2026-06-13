@@ -14,8 +14,9 @@ RUN apt-get update \
 COPY requirements.fastapi.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy FastAPI application
+# Copy FastAPI application and shared logging
 COPY fastapi_server.py main.py
+COPY log.py log.py
 
 # Create directory for models
 RUN mkdir -p /app/models

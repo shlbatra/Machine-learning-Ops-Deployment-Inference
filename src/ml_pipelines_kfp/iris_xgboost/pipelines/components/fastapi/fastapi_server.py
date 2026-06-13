@@ -5,40 +5,15 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
 import os
-import json
-import logging
-import sys
 import uvicorn
 from google.cloud import storage
 
 from models.instance import Instance
 from models.prediction import Prediction
+from log import get_logger
 
-
-class JSONFormatter(logging.Formatter):
-    def format(self, record):
-        log_entry = {
-            "severity": record.levelname,
-            "message": record.getMessage(),
-            "module": record.module,
-        }
-        extra_data = getattr(record, "extra_data", None)
-        if extra_data and isinstance(extra_data, dict):
-            log_entry.update(extra_data)
-        return json.dumps(log_entry)
-
-
-def _get_logger(name):
-    _logger = logging.getLogger(name)
-    if not _logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(JSONFormatter())
-        _logger.addHandler(handler)
-        _logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
-    return _logger
-
-
-logger = _get_logger(__name__)
+logger = get_logger(__name__)
+logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
 app = FastAPI(
     title="ML Model Inference API",
