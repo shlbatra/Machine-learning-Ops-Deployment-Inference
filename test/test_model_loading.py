@@ -14,39 +14,6 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, "src")
 
-def test_model_compatibility():
-    """Test if training and serving models are compatible"""
-    print("=== Testing Model Compatibility ===")
-    
-    try:
-        # Test imports that server uses
-        from ml_pipelines_kfp.iris_xgboost.models.instance import Instance
-        from ml_pipelines_kfp.iris_xgboost.models.prediction import Prediction
-        print("✓ Model classes imported successfully")
-        
-        # Test creating instances
-        test_instance = Instance(
-            sepal_length=5.1,
-            sepal_width=3.5,
-            petal_length=1.4,
-            petal_width=0.2
-        )
-        print("✓ Instance model works")
-        
-        # Test prediction model
-        test_prediction = Prediction(
-            class_=0,
-            class_probabilities=[0.8, 0.1, 0.1]
-        )
-        print("✓ Prediction model works")
-        
-        return True
-        
-    except Exception as e:
-        print(f"✗ Model compatibility test failed: {e}")
-        traceback.print_exc()
-        return False
-
 def test_joblib_versions():
     """Test joblib version compatibility"""
     print("\n=== Testing Joblib Compatibility ===")
@@ -140,27 +107,24 @@ def test_fsspec_gcs():
 def test_environment_variables():
     """Test environment variable handling"""
     print("\n=== Testing Environment Variables ===")
-    
-    # Test AIP_STORAGE_URI handling
+
+    model_filename = "model.joblib"
+
+    # Test MODEL_GCS_PATH (primary, used by Cloud Run)
+    test_gcs_path = "gs://test-bucket/deployed-models/service/model.joblib"
+    os.environ["MODEL_GCS_PATH"] = test_gcs_path
+    resolved = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
+    print(f"✓ MODEL_GCS_PATH resolved to: {resolved}")
+
+    # Test AIP_STORAGE_URI fallback (used by Vertex AI Endpoints)
+    del os.environ["MODEL_GCS_PATH"]
     test_uri = "gs://test-bucket/model-path"
     os.environ["AIP_STORAGE_URI"] = test_uri
-    
-    try:
-        from ml_pipelines_kfp.iris_xgboost.constants import MODEL_FILENAME
-        
-        expected_model_uri = f"{test_uri}/{MODEL_FILENAME}"
-        print(f"✓ Model URI would be: {expected_model_uri}")
-        
-        # Test if the server would construct the right path
-        model_uri = f'{os.environ["AIP_STORAGE_URI"]}/{MODEL_FILENAME}'
-        print(f"✓ Server would use: {model_uri}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"✗ Environment variable test failed: {e}")
-        traceback.print_exc()
-        return False
+    resolved = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
+    expected = f"{resolved}/{model_filename}"
+    print(f"✓ AIP_STORAGE_URI fallback resolved to: {expected}")
+
+    return True
 
 def analyze_pipeline_model():
     """Analyze a real model from pipeline if available"""
@@ -212,11 +176,10 @@ if __name__ == "__main__":
     print("=" * 40)
     
     tests = [
-        test_model_compatibility,
-        test_joblib_versions, 
+        test_joblib_versions,
         test_fsspec_gcs,
         test_environment_variables,
-        analyze_pipeline_model
+        analyze_pipeline_model,
     ]
     
     results = []

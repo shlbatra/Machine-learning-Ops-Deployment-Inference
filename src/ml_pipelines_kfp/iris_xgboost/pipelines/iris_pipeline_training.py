@@ -71,7 +71,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
         model=choose_model_op.outputs["best_model"],
         schema=schema_load.outputs["gcs_schema"],
         model_name=MODEL_NAME,
-        image_name=IMAGE_NAME,
+        image_name=FASTAPI_IMAGE_NAME,
     ).set_display_name("Register Model")
 
     deploy_model_op = (

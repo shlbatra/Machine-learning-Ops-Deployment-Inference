@@ -56,8 +56,8 @@ jobs:
             --build-arg BUILD_COMMIT=${{ env.BUILD_COMMIT }} \
             --tag ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.FASTAPI_IMAGE_NAME }}:${{ github.ref_name }} \
             --tag ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.FASTAPI_IMAGE_NAME }}:latest \
-            --file src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/Dockerfile.fastapi \
-            src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/
+            --file Dockerfile.fastapi \
+            .
 
       - name: Push FastAPI inference image
         run: |

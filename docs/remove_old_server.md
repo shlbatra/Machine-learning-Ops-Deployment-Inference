@@ -28,13 +28,16 @@ model_gcs_path = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
 
 When `AIP_STORAGE_URI` is used, it points to a directory (e.g. `gs://bucket/path/`), not a file. The model file is `model.joblib` inside that directory. So also update the GCS download logic: if the path doesn't end with a file extension, append `/model.joblib`.
 
-Also add a `/health/live` alias endpoint so Vertex AI's existing health route config works without changes:
+Rename the health endpoint from `/health` to `/health/live` so it matches the Vertex AI `health_route="/health/live"` already set in `register.py`:
 
 ```python
-@app.get("/health/live")
-async def health_live():
-    return await health_check()
+@app.get("/health/live", response_model=HealthResponse)
+async def health_check():
 ```
+
+Update the root `/` response — change `"health_check": "/health"` to `"health_check": "/health/live"` and remove the dead `"vertex_ai_endpoint": "/v1/models/model:predict"` entry (no such route exists).
+
+Update `deploy.py` line 228 — change the smoke test from `requests.get(f"{service_url}/health", ...)` to `requests.get(f"{service_url}/health/live", ...)`.
 
 ### 2. Update `register.py` to use FastAPI image
 
@@ -58,13 +61,58 @@ Line 74: change `image_name=IMAGE_NAME` to `image_name=FASTAPI_IMAGE_NAME`
 
 The root Dockerfile's CMD (line 33) currently points to `server.py`. Since this image is still used as `base_image` for some KFP components (`deploy.py`, `schema.py`), it doesn't need a serving CMD at all — those components don't use the CMD. Remove the CMD line since this image is only used as a KFP component base, not as a serving container.
 
-### 5. Delete `server.py` and its models
+### 5. Use typed Pydantic models in `fastapi_server.py` for strict validation
 
-**Delete these files:**
+**Keep these files as-is:**
+- `src/ml_pipelines_kfp/iris_xgboost/models/instance.py` — `Instance(SepalLengthCm, SepalWidthCm, PetalLengthCm, PetalWidthCm)`
+- `src/ml_pipelines_kfp/iris_xgboost/models/prediction.py` — `Prediction(class_, class_probabilities)`
+- `src/ml_pipelines_kfp/iris_xgboost/models/__init__.py`
+
+**Modify `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/fastapi_server.py`:**
+
+Replace the generic dict-based models with imports from the existing typed models:
+
+```python
+from src.ml_pipelines_kfp.iris_xgboost.models.instance import Instance
+from src.ml_pipelines_kfp.iris_xgboost.models.prediction import Prediction
+```
+
+Replace `PredictionRequest` and `PredictionResponse`:
+
+```python
+class PredictionRequest(BaseModel):
+    instances: List[Instance]          # was List[Dict[str, Any]]
+
+class PredictionResponse(BaseModel):
+    predictions: List[Prediction]      # was List[Dict[str, Any]]
+```
+
+Update the `/predict` handler to build `Prediction` objects instead of raw dicts:
+
+```python
+results = []
+for pred in predictions:
+    results.append(Prediction(
+        class_=int(pred),
+        class_probabilities=model.predict_proba(df)[i].tolist(),
+    ))
+return PredictionResponse(predictions=results)
+```
+
+This gives strict validation — requests missing feature fields or sending wrong types are rejected with a 422 before hitting the model.
+
+**Modify `Dockerfile.fastapi`:**
+
+The FastAPI container needs access to the models package. Either:
+- Copy the models directory into the image: `COPY ../../models /app/models`
+- Or install the project package in the image
+
+**Modify `requirements.fastapi.txt`:**
+
+No changes needed — `pydantic>=2.0.0` is already listed.
+
+**Delete only:**
 - `src/ml_pipelines_kfp/iris_xgboost/server.py`
-- `src/ml_pipelines_kfp/iris_xgboost/models/instance.py`
-- `src/ml_pipelines_kfp/iris_xgboost/models/prediction.py`
-- `src/ml_pipelines_kfp/iris_xgboost/models/__init__.py` (if it only exists for the above)
 
 ### 6. Update/delete test files
 
@@ -79,14 +127,15 @@ Run the pipeline compiler to regenerate `pipeline.yaml` and `src/ml_pipelines_kf
 
 | File | Action |
 |---|---|
-| `components/fastapi/fastapi_server.py` | Add `AIP_STORAGE_URI` fallback + `/health/live` alias |
+| `components/fastapi/fastapi_server.py` | Add `AIP_STORAGE_URI` fallback, rename `/health` to `/health/live`, remove dead `/v1/models/model:predict` from root, use typed `Instance`/`Prediction` models instead of `Dict[str, Any]` |
+| `components/fastapi/Dockerfile.fastapi` | Copy models package into image |
+| `components/deploy.py` | Update health check test to `/health/live` |
 | `components/register.py` | Remove `args` from container_spec |
 | `pipelines/iris_pipeline_training.py` | Pass `FASTAPI_IMAGE_NAME` to `upload_model` |
 | `Dockerfile` | Remove CMD line |
 | `iris_xgboost/server.py` | **Delete** |
-| `iris_xgboost/models/instance.py` | **Delete** |
-| `iris_xgboost/models/prediction.py` | **Delete** |
-| `iris_xgboost/models/__init__.py` | **Delete** (if empty after above) |
+| `iris_xgboost/models/instance.py` | **Keep** — used by `fastapi_server.py` for request validation |
+| `iris_xgboost/models/prediction.py` | **Keep** — used by `fastapi_server.py` for response schema |
 | `test/test_server_locally.py` | **Delete** |
 | `test/test_model_loading.py` | Remove `test_model_compatibility`, update env var test |
 | `pipeline.yaml` (root + pipelines/) | **Recompile** |
@@ -94,7 +143,7 @@ Run the pipeline compiler to regenerate `pipeline.yaml` and `src/ml_pipelines_kf
 ## Verification
 
 1. `grep -rn "iris_xgboost.server\|server:app" src/ test/ Dockerfile *.yaml` — should return nothing
-2. `grep -rn "models.instance\|models.prediction" src/ test/` — should return nothing
+2. `grep -rn "models.instance\|models.prediction" src/ test/` — should only reference `fastapi_server.py`
 3. `python -m py_compile` on all modified files
 4. `python -m pytest test/` — tests pass
 5. Recompile pipeline: `python -m src.ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_training` (generates updated pipeline.yaml)

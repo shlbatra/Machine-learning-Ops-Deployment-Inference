@@ -3,13 +3,14 @@ from pydantic import BaseModel
 import joblib
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Optional
 import os
 import logging
-import tempfile
-from google.cloud import storage
 import uvicorn
+from google.cloud import storage
 
+from models.instance import Instance
+from models.prediction import Prediction
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,13 +23,15 @@ app = FastAPI(
 
 model = None
 
+MODEL_FILENAME = "model.joblib"
+
 
 class PredictionRequest(BaseModel):
-    instances: List[Dict[str, Any]]
+    instances: List[Instance]
 
 
 class PredictionResponse(BaseModel):
-    predictions: List[Dict[str, Any]]
+    predictions: List[Prediction]
 
 
 class HealthResponse(BaseModel):
@@ -38,40 +41,37 @@ class HealthResponse(BaseModel):
 
 
 def download_model_from_gcs(gcs_path: str, local_path: str):
-    """Download model from GCS to local path"""
     if not gcs_path.startswith("gs://"):
         raise ValueError(f"Expected GCS path starting with gs://, got: {gcs_path}")
 
-    # Parse GCS path
     path_parts = gcs_path.replace("gs://", "").split("/")
     bucket_name = path_parts[0]
     blob_path = "/".join(path_parts[1:])
 
-    # Download from GCS
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_path)
 
     logger.info(f"Downloading model from {gcs_path} to {local_path}")
     blob.download_to_filename(local_path)
-    logger.info(f"Model downloaded successfully")
+    logger.info("Model downloaded successfully")
 
 
 @app.on_event("startup")
 async def load_model():
     global model
 
-    # Check if model should be loaded from GCS
-    model_gcs_path = os.getenv("MODEL_GCS_PATH")
-    model_path = os.getenv("MODEL_PATH", "/app/models/model.joblib")
+    model_gcs_path = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
+    model_path = os.getenv("MODEL_PATH", "/app/model_artifacts/model.joblib")
 
     try:
         if model_gcs_path:
-            # Download model from GCS
+            # AIP_STORAGE_URI points to a directory, not a file
+            if not model_gcs_path.endswith(".joblib"):
+                model_gcs_path = model_gcs_path.rstrip("/") + f"/{MODEL_FILENAME}"
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             download_model_from_gcs(model_gcs_path, model_path)
 
-        # Load model
         if os.path.exists(model_path):
             model = joblib.load(model_path)
             logger.info(f"Model loaded from {model_path}")
@@ -88,12 +88,12 @@ async def load_model():
 async def root():
     return {
         "message": "ML Model Inference API",
-        "health_check": "/health",
-        "prediction": "/predict"
+        "health_check": "/health/live",
+        "prediction": "/predict",
     }
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health/live", response_model=HealthResponse)
 async def health_check():
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
@@ -109,19 +109,17 @@ async def predict(request: PredictionRequest):
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     try:
-        df = pd.DataFrame(request.instances)
+        df = pd.DataFrame(i.model_dump() for i in request.instances)
         predictions = model.predict(df)
+        probabilities = model.predict_proba(df)
 
-        results = []
-        for pred in predictions:
-            if isinstance(pred, np.ndarray):
-                results.append({"prediction": pred.tolist()})
-            elif isinstance(pred, (np.int64, np.int32)):
-                results.append({"prediction": int(pred)})
-            elif isinstance(pred, (np.float64, np.float32)):
-                results.append({"prediction": float(pred)})
-            else:
-                results.append({"prediction": pred})
+        results = [
+            Prediction(
+                class_=int(pred),
+                class_probabilities=proba.tolist(),
+            )
+            for pred, proba in zip(predictions, probabilities)
+        ]
 
         return PredictionResponse(predictions=results)
 
@@ -131,6 +129,5 @@ async def predict(request: PredictionRequest):
 
 
 if __name__ == "__main__":
-
     port = int(os.getenv("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)

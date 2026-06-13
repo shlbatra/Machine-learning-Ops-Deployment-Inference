@@ -224,7 +224,7 @@ def deploy_blessed_model_to_fastapi(
 
         try:
             # Test health endpoint first
-            health_response = requests.get(f"{service_url}/health", timeout=30)
+            health_response = requests.get(f"{service_url}/health/live", timeout=30)
             print(f"Health check status: {health_response.status_code}")
             if health_response.status_code == 200:
                 print(f"Health check response: {health_response.json()}")
