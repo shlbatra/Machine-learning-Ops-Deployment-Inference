@@ -1,4 +1,6 @@
+import argparse
 import sys
+import os
 import kfp
 import google.cloud.aiplatform as aip
 from google.oauth2 import service_account
@@ -53,16 +55,23 @@ def pipeline(
 
 
 if __name__ == "__main__":
-    # Pipeline compilation
-    sys.path.append("src")
+    parser = argparse.ArgumentParser(
+        description="Compile and submit the Iris inference pipeline to Vertex AI"
+    )
+    parser.add_argument("--project-id", default=PROJECT_ID)
+    parser.add_argument("--region", default=REGION)
+    parser.add_argument("--bq-dataset", default=BQ_DATASET)
+    parser.add_argument("--bq-table", default=BQ_TABLE)
+    parser.add_argument("--bq-table-predictions", default=BQ_TABLE_PREDICTIONS)
+    parser.add_argument("--service-account-path", default=SERVICE_ACCOUNT_PATH)
+    cli = parser.parse_args()
 
-    # Set up authentication using service account
     credentials = service_account.Credentials.from_service_account_file(
-        filename=SERVICE_ACCOUNT_PATH,
+        filename=cli.service_account_path,
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    aip.init(project=PROJECT_ID, credentials=credentials)
+    aip.init(project=cli.project_id, credentials=credentials)
 
     kfp.compiler.Compiler().compile(
         pipeline_func=pipeline,
@@ -75,11 +84,11 @@ if __name__ == "__main__":
         pipeline_root=PIPELINE_ROOT,
         enable_caching=False,
         parameter_values={
-            "bq_dataset": BQ_DATASET,
-            "bq_table": BQ_TABLE,
-            "bq_table_predictions": BQ_TABLE_PREDICTIONS,
-            "location": REGION,
-            "project_id": PROJECT_ID,
+            "bq_dataset": cli.bq_dataset,
+            "bq_table": cli.bq_table,
+            "bq_table_predictions": cli.bq_table_predictions,
+            "location": cli.region,
+            "project_id": cli.project_id,
         },
         credentials=credentials,
     )

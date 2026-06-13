@@ -3,19 +3,31 @@
 # Deploy Dataflow streaming job for real-time Iris inference using FastAPI service
 set -e
 
+# Environment: staging (default) or prod
+ENV=${1:-staging}
+
 # Configuration
 PROJECT_ID="deeplearning-sahil"
 REGION="us-central1"
-JOB_NAME="iris-streaming-inference-$(date +%Y%m%d-%H%M%S)"
 PUBSUB_TOPIC="projects/$PROJECT_ID/topics/iris-inference-data"
-OUTPUT_TABLE="$PROJECT_ID:ml_dataset.iris_predictions_streaming"
 TEMP_LOCATION="gs://sb-vertex/temp"
 STAGING_LOCATION="gs://sb-vertex/staging"
 SERVICE_ACCOUNT="kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
-SERVICE_URL="https://iris-classifier-xgboost-service-zoxyfmo73q-uc.a.run.app"
 
-echo "Deploying Dataflow streaming job for real-time inference using FastAPI service..."
-echo "Note: Update SERVICE_URL with the actual Cloud Run service URL after deployment"
+if [ "$ENV" = "prod" ]; then
+  SERVICE_URL="https://iris-classifier-xgboost-service-zoxyfmo73q-uc.a.run.app"
+  JOB_PREFIX="iris-streaming-inference"
+  OUTPUT_TABLE="$PROJECT_ID:ml_dataset.iris_predictions_streaming"
+else
+  SERVICE_URL="<staging-cloud-run-url>"
+  JOB_PREFIX="iris-streaming-inference-staging"
+  OUTPUT_TABLE="$PROJECT_ID:ml_dataset.iris_predictions_streaming_staging"
+fi
+
+JOB_NAME="$JOB_PREFIX-$(date +%Y%m%d-%H%M%S)"
+
+echo "Deploying Dataflow streaming job ($ENV) for real-time inference using FastAPI service..."
+echo "Service URL: $SERVICE_URL"
 
 # Run the Dataflow job
 echo "Starting Dataflow streaming job: $JOB_NAME"
@@ -39,6 +51,7 @@ python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
 
 echo "Dataflow job submitted successfully!"
 echo "Job name: $JOB_NAME"
+echo "Environment: $ENV"
 echo "Monitor at: https://console.cloud.google.com/dataflow/jobs/$REGION/$JOB_NAME?project=$PROJECT_ID"
 echo ""
 echo "To test the pipeline:"

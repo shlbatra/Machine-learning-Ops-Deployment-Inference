@@ -6,6 +6,7 @@ import google.cloud.aiplatform as aip
 from google.oauth2 import service_account
 import ml_pipelines_kfp.iris_xgboost.constants as _constants
 from ml_pipelines_kfp.iris_xgboost.constants import (
+    ENV,
     PIPELINE_NAME,
     REPO_ROOT,
     PIPELINE_ROOT,
@@ -85,7 +86,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
             project_id=project_id,
             location=location,
             model_name=MODEL_NAME,
-            service_name=f"{MODEL_NAME.lower().replace('_', '-')}-service",
+            service_name=f"iris-classifier-xgboost-service{'' if ENV == 'prod' else '-staging'}",
             fastapi_image_name=FASTAPI_IMAGE_NAME,
         )
         .set_display_name("Deploy Blessed Model to FastAPI")
