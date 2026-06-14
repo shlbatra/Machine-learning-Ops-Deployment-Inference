@@ -275,9 +275,13 @@ The project uses a **blessed model pattern** for production deployments:
 Real-time inference is handled through:
 
 1. **Data Ingestion**: Pub/Sub receives real-time inference requests
-2. **Stream Processing**: Dataflow processes messages and calls FastAPI services
+2. **Stream Processing**: Dataflow processes messages with micro-batching and calls FastAPI services
 3. **Model Serving**: Cloud Run hosts FastAPI containers with blessed models
 4. **Results Storage**: Predictions are written to BigQuery for monitoring
+
+Streaming supports **micro-batching** via Beam's `BatchElements` with `max_batch_duration_secs`. Up to 50 messages are grouped into a single `/predict` call, reducing HTTP overhead by ~10-50x. At low traffic, partial batches flush after 1 second so no message waits indefinitely. Both `--batch_size` and `--max_batch_duration_secs` are tunable via CLI args.
+
+For high-volume workloads, the pipeline also uses **async HTTP** (`aiohttp`) to overlap multiple batch calls concurrently within a single worker, providing an additional ~2-4x throughput improvement on top of batching.
 
 ### Key Benefits
 

@@ -5,13 +5,15 @@ Reads from Pub/Sub, calls FastAPI ML service deployed via Kubeflow, writes predi
 
 import json
 import argparse
+import asyncio
+import logging
 from typing import Any, Dict, List
-import requests
 import time
 
+import aiohttp
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
-from apache_beam.transforms import window
+from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
 
 from ml_pipelines_kfp.log import get_logger
@@ -62,78 +64,89 @@ class ParsePubSubMessage(beam.DoFn):
             logger.error(f"Error parsing message: {e}, message: {element}")
 
 
-class CallFastAPIService(beam.DoFn):
-    """Call FastAPI ML service for inference."""
+class BatchCallFastAPIService(beam.DoFn):
+    """Call FastAPI with a batch of instances using async HTTP."""
 
-    def __init__(self, service_url: str):
+    def __init__(self, service_url, max_concurrent=4):
         self.service_url = service_url
         self.predict_url = f"{service_url}/predict"
+        self.max_concurrent = max_concurrent
 
-    def process(self, element):
-        import time
+    def setup(self):
+        self._loop = asyncio.new_event_loop()
+        self._connector = aiohttp.TCPConnector(limit=self.max_concurrent)
+        self._session = aiohttp.ClientSession(connector=self._connector)
+
+    def teardown(self):
+        self._loop.run_until_complete(self._session.close())
+        self._loop.close()
+
+    def process(self, batch):
+        results = self._loop.run_until_complete(self._call_async(batch))
+        yield from results
+
+    async def _call_async(self, batch):
         from datetime import datetime
-        import requests
 
         start_time = time.time()
 
-        try:
-            payload = {
-                "instances": [
-                    {
-                        "SepalLengthCm": element["sepal_length"],
-                        "SepalWidthCm": element["sepal_width"],
-                        "PetalLengthCm": element["petal_length"],
-                        "PetalWidthCm": element["petal_width"],
-                    }
-                ]
+        instances = [
+            {
+                "SepalLengthCm": e["sepal_length"],
+                "SepalWidthCm": e["sepal_width"],
+                "PetalLengthCm": e["petal_length"],
+                "PetalWidthCm": e["petal_width"],
             }
+            for e in batch
+        ]
 
-            response = requests.post(self.predict_url, json=payload, timeout=30)
-            response.raise_for_status()
+        try:
+            async with self._session.post(
+                self.predict_url,
+                json={"instances": instances},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                response.raise_for_status()
+                result_data = await response.json()
 
-            result_data = response.json()
             predictions = result_data.get("predictions", [])
-
-            if predictions:
-                prediction_result = predictions[0]
-                predicted_class = str(prediction_result.get("prediction", "unknown"))
-            else:
-                predicted_class = "unknown"
-
             processing_time = time.time() - start_time
 
-            result = {
-                "sepal_length": element["sepal_length"],
-                "sepal_width": element["sepal_width"],
-                "petal_length": element["petal_length"],
-                "petal_width": element["petal_width"],
-                "timestamp": element.get("timestamp", datetime.utcnow().isoformat()),
-                "sample_id": element.get("sample_id", 0),
-                "prediction": predicted_class,
-                "prediction_timestamp": datetime.utcnow().isoformat(),
-                "model_service": self.service_url,
-                "processing_time": processing_time,
-            }
-
-            logger.info(
-                f"Prediction for sample {element.get('sample_id')}: {predicted_class}"
-            )
-            yield result
+            results = []
+            for element, pred in zip(batch, predictions):
+                predicted_class = str(pred.get("prediction", "unknown"))
+                results.append({
+                    "sepal_length": element["sepal_length"],
+                    "sepal_width": element["sepal_width"],
+                    "petal_length": element["petal_length"],
+                    "petal_width": element["petal_width"],
+                    "timestamp": element.get("timestamp", datetime.utcnow().isoformat()),
+                    "sample_id": element.get("sample_id", 0),
+                    "prediction": predicted_class,
+                    "prediction_timestamp": datetime.utcnow().isoformat(),
+                    "model_service": self.service_url,
+                    "processing_time": processing_time / len(batch),
+                })
+            return results
 
         except Exception as e:
-            logger.error(f"Error calling FastAPI service: {e}, element: {element}")
-            yield {
-                "sepal_length": element.get("sepal_length", 0.0),
-                "sepal_width": element.get("sepal_width", 0.0),
-                "petal_length": element.get("petal_length", 0.0),
-                "petal_width": element.get("petal_width", 0.0),
-                "timestamp": element.get("timestamp", datetime.utcnow().isoformat()),
-                "sample_id": element.get("sample_id", 0),
-                "prediction": "ERROR",
-                "prediction_timestamp": datetime.utcnow().isoformat(),
-                "model_service": f"ERROR: {str(e)}",
-                "processing_time": time.time() - start_time,
-            }
+            logging.error(f"Batch prediction failed ({len(batch)} instances): {e}")
+            processing_time = time.time() - start_time
+            return [
+                {
+                    "sepal_length": el.get("sepal_length", 0.0),
+                    "sepal_width": el.get("sepal_width", 0.0),
+                    "petal_length": el.get("petal_length", 0.0),
+                    "petal_width": el.get("petal_width", 0.0),
+                    "timestamp": el.get("timestamp", datetime.utcnow().isoformat()),
+                    "sample_id": el.get("sample_id", 0),
+                    "prediction": "ERROR",
+                    "prediction_timestamp": datetime.utcnow().isoformat(),
+                    "model_service": f"ERROR: {str(e)}",
+                    "processing_time": processing_time,
+                }
+                for el in batch
+            ]
 
 
 class AddProcessingMetadata(beam.DoFn):
@@ -164,6 +177,14 @@ def run_pipeline(argv=None):
     parser.add_argument("--project_id", required=True, help="Project ID")
     parser.add_argument("--region", required=True, help="GCP Region")
     parser.add_argument("--service_url", required=True, help="FastAPI service URL")
+    parser.add_argument(
+        "--batch_size", type=int, default=50,
+        help="Max instances per /predict call",
+    )
+    parser.add_argument(
+        "--max_batch_duration_secs", type=float, default=1.0,
+        help="Max seconds to buffer a partial batch before flushing",
+    )
 
     known_args, pipeline_args = parser.parse_known_args(argv)
     logger.info(f"Known args: {known_args}")
@@ -183,8 +204,13 @@ def run_pipeline(argv=None):
             pipeline
             | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
             | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
-            | "Call FastAPI Service"
-            >> beam.ParDo(CallFastAPIService(known_args.service_url))
+            | "Batch Elements" >> BatchElements(
+                min_batch_size=1,
+                max_batch_size=known_args.batch_size,
+                max_batch_duration_secs=known_args.max_batch_duration_secs,
+            )
+            | "Call FastAPI Batch"
+            >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
             | "Add Metadata" >> beam.ParDo(AddProcessingMetadata())
             | "Write to BigQuery"
             >> WriteToBigQuery(
