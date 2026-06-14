@@ -1,5 +1,7 @@
 # End to end ML Pipeline with training, deployment and real time inference.
 
+![CI/CD Pipeline](https://github.com/shlbatra/Machine-learning-Ops-Deployment-Inference/actions/workflows/cicd.yaml/badge.svg)
+
 A production-grade ML pipeline implementation using Kubeflow Pipelines (KFP) on Google Cloud Vertex AI. This project demonstrates MLOps best practices for automating end-to-end ML workflows.
 
 ## Overview
