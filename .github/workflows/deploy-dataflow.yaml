@@ -88,7 +88,8 @@ jobs:
             --autoscaling_algorithm THROUGHPUT_BASED \
             --streaming \
             --enable_streaming_engine \
-            --experiments use_runner_v2
+            --experiments use_runner_v2 \
+            --no_wait
 
           echo "Job submitted: $JOB_NAME"
           echo "Environment: ${{ inputs.environment }}"
