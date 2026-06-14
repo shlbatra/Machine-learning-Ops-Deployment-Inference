@@ -185,6 +185,10 @@ def run_pipeline(argv=None):
         "--max_batch_duration_secs", type=float, default=1.0,
         help="Max seconds to buffer a partial batch before flushing",
     )
+    parser.add_argument(
+        "--no_wait", action="store_true",
+        help="Submit the job and exit without waiting for it to finish",
+    )
 
     known_args, pipeline_args = parser.parse_known_args(argv)
     logger.info(f"Known args: {known_args}")
@@ -198,31 +202,35 @@ def run_pipeline(argv=None):
     google_cloud_options.project = known_args.project_id
     google_cloud_options.region = known_args.region
 
-    with beam.Pipeline(options=pipeline_options) as pipeline:
+    pipeline = beam.Pipeline(options=pipeline_options)
 
-        predictions = (
-            pipeline
-            | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
-            | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
-            | "Batch Elements" >> BatchElements(
-                min_batch_size=1,
-                max_batch_size=known_args.batch_size,
-                max_batch_duration_secs=known_args.max_batch_duration_secs,
-            )
-            | "Call FastAPI Batch"
-            >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
-            | "Add Metadata" >> beam.ParDo(AddProcessingMetadata())
-            | "Write to BigQuery"
-            >> WriteToBigQuery(
-                table=known_args.output_table,
-                schema=PREDICTION_SCHEMA,
-                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
-                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                additional_bq_parameters={
-                    "timePartitioning": {"type": "DAY", "field": "prediction_timestamp"}
-                },
-            )
+    predictions = (
+        pipeline
+        | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
+        | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
+        | "Batch Elements" >> BatchElements(
+            min_batch_size=1,
+            max_batch_size=known_args.batch_size,
+            max_batch_duration_secs=known_args.max_batch_duration_secs,
         )
+        | "Call FastAPI Batch"
+        >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
+        | "Add Metadata" >> beam.ParDo(AddProcessingMetadata())
+        | "Write to BigQuery"
+        >> WriteToBigQuery(
+            table=known_args.output_table,
+            schema=PREDICTION_SCHEMA,
+            write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+            additional_bq_parameters={
+                "timePartitioning": {"type": "DAY", "field": "prediction_timestamp"}
+            },
+        )
+    )
+
+    result = pipeline.run()
+    if not known_args.no_wait:
+        result.wait_until_finish()
 
 
 if __name__ == "__main__":
