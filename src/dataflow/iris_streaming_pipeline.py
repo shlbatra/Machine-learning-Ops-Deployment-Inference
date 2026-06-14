@@ -175,6 +175,7 @@ def run_pipeline(argv=None):
 
     google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
     google_cloud_options.project = known_args.project_id
+    google_cloud_options.region = known_args.region
 
     with beam.Pipeline(options=pipeline_options) as pipeline:
 
