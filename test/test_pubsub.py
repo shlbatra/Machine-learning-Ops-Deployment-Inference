@@ -18,7 +18,7 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     PUBSUB_SUBSCRIPTION,
     PROJECT_ID
 )
-from ml_pipelines_kfp.iris_xgboost.pubsub_producer import IrisDataPubSubProducer
+from scripts.pubsub_producer import IrisDataPubSubProducer
 
 
 def test_pubsub_connection():
