@@ -61,16 +61,23 @@ def ingest(project: str = PROJECT) -> None:
 
     combined = pd.concat(frames, ignore_index=True)
 
+    if "load_timestamp" in combined.columns:
+        combined[cfg.feature_timestamp_column] = pd.to_datetime(
+            combined["load_timestamp"], utc=True
+        )
+    else:
+        combined[cfg.feature_timestamp_column] = pd.Timestamp.now(tz="UTC")
+
+    combined[cfg.entity_id_column] = (
+        combined["Id"].astype(int).astype(str) + "_" + combined["source"]
+    )
+
     keep_cols = list(cfg.feature_columns)
     if cfg.target_column in combined.columns:
         keep_cols.append(cfg.target_column)
-    if "source" in combined.columns:
-        keep_cols.append("source")
+    keep_cols.extend(["source", cfg.entity_id_column, cfg.feature_timestamp_column])
 
     combined = combined[[c for c in keep_cols if c in combined.columns]]
-
-    combined[cfg.entity_id_column] = range(1, len(combined) + 1)
-    combined[cfg.feature_timestamp_column] = pd.Timestamp.now(tz="UTC")
 
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
