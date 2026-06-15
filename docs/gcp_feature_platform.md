@@ -84,14 +84,18 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 
 ### Step 1: Feature Definitions (foundation)
 
-**Create `src/feature_store/__init__.py`** — package init
+**Create `src/feature_store/schema.py`** — shared `FeatureConfig` dataclass that defines the contract every ML project must follow: feature columns, entity/target/timestamp column names, column mappings (source → canonical), BQ table references, and Feature Store resource IDs. Frozen dataclass for immutability. Includes a `canonical_to_source` property for reverse lookups.
 
-**Create `src/feature_store/feature_definitions.py`** — single source of truth:
+**Create `src/feature_store/iris/__init__.py`** — iris sub-package init
+
+**Create `src/feature_store/iris/feature_definitions.py`** — iris-specific `IRIS_CONFIG` instance of `FeatureConfig`:
 - Canonical feature column names: `sepal_length_cm`, `sepal_width_cm`, `petal_length_cm`, `petal_width_cm`
 - Entity ID column name: `entity_id`
 - Target column: `species`
-- Mapping dicts: CamelCase to canonical, snake_case to canonical
-- Feature Store resource name constants (`FEATURE_ONLINE_STORE_ID`, `FEATURE_VIEW_ID`, `BQ_FEATURE_TABLE`)
+- Column mappings: `camel` (BQ raw CamelCase → canonical), `snake` (Pub/Sub snake_case → canonical)
+- Feature Store resource name constants (`iris_online_store`, `iris_features`, `iris_features` BQ table)
+
+To add a new ML project, create `src/feature_store/<project>/feature_definitions.py` with its own `FeatureConfig` instance — same contract, different values.
 
 ### Step 2: Simulate New Data for Inference
 
@@ -215,8 +219,9 @@ This pipeline reads features from the online store and runs inference — fully 
 | Action | File | What changes |
 |--------|------|-------------|
 | **`src/feature_store/` (new package)** | | |
-| Create | `src/feature_store/__init__.py` | Package init |
-| Create | `src/feature_store/feature_definitions.py` | Canonical names, mappings, resource IDs, Feature Store constants |
+| Create | `src/feature_store/schema.py` | Shared `FeatureConfig` dataclass — contract for all ML projects |
+| Create | `src/feature_store/iris/__init__.py` | Iris sub-package init |
+| Create | `src/feature_store/iris/feature_definitions.py` | `IRIS_CONFIG` instance with canonical names, mappings, resource IDs |
 | Create | `src/feature_store/ingest.py` | Script: raw BQ → canonical feature table |
 | Create | `src/feature_store/sync.py` | Script: trigger FeatureView sync after ingestion |
 | Create | `src/feature_store/online_serving.py` | Utility: online store reads |
@@ -243,7 +248,7 @@ This pipeline reads features from the online store and runs inference — fully 
 1. **Feature Store V2 (BigQuery-backed)**, not the deprecated Legacy Feature Store — data already lives in BQ, and this is the current Google-recommended approach.
 2. **New `load_data_from_feature_store` component** alongside existing `load_data` (not replacing it) — keeps the original as reference since this is a learning repo.
 3. **Pydantic aliases for backward compat** — the Instance model accepts both `SepalLengthCm` and `sepal_length_cm`, so existing consumers don't break.
-4. **`feature_store` as a separate package** — lives in `src/feature_store/`, independent from `ml_pipelines_kfp`. KFP components in `feature_store/` use `@component(base_image="python:3.10", packages_to_install=[...])` since the `ml_pipelines_kfp` base image won't include this package. The training pipeline imports the ingest/sync components from `feature_store` and wires them into the KFP DAG.
+4. **`feature_store` as a separate package with per-project sub-packages** — lives in `src/feature_store/`, independent from `ml_pipelines_kfp`. A shared `FeatureConfig` dataclass (`schema.py`) defines the contract; each ML project gets its own sub-package (`iris/`, `fraud/`, etc.) with a `feature_definitions.py` that instantiates the config. New projects follow the same pattern without touching shared code.
 5. **Two streaming pipelines (feature + inference)** — decoupled so feature ingestion and inference scale independently. Features persist even if the model is down, and the feature store becomes a shared asset for any downstream consumer.
 6. **Model retraining required** — after this change, models will be trained on canonical column names. First deployment needs a fresh training run.
 
