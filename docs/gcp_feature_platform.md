@@ -2,7 +2,7 @@
 
 ## Context
 
-The repo has an end-to-end ML pipeline (KFP on Vertex AI) for Iris classification. Currently, features are read directly from BigQuery with no centralized feature definitions — column names differ across paths (CamelCase in BQ/training, snake_case in Pub/Sub/streaming), there's a brittle conditional rename in batch inference (`inference.py:45-56`), and the FastAPI `Instance` model uses `Optional[float]` with no null validation. This creates training/serving skew risk.
+The repo has an end-to-end ML pipeline (KFP on Vertex AI) for Iris classification. Currently, features are read directly from BigQuery with no centralized feature definitions — column names differ across paths (CamelCase in BQ/training, snake_case in Pub/Sub/streaming), there's a brittle conditional rename in batch inference (`inference.py:36-48`), and the FastAPI `Instance` model uses `Optional[float]` with no null validation. This creates training/serving skew risk.
 
 Adding Vertex AI Feature Store (V2, BigQuery-backed) solves this by providing:
 - A single source of truth for feature schemas and column names
@@ -34,13 +34,13 @@ The existing `google-cloud-aiplatform>=1.59.0` dependency already includes the F
 
 ### Step 2: Feature Ingestion KFP Component
 
-**Create `src/ml_pipelines_kfp/iris_xgboost/feature_store/ingest.py`** — a `@component` that:
+**Create `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/feature_ingest.py`** — a `@component` that:
 1. Reads raw data from `ml_dataset.iris` (BQ)
-2. Renames columns to canonical names using the mapping
+2. Renames columns to canonical names using the mapping (drops the raw `Id` column)
 3. Adds `entity_id` (row index) and `feature_timestamp` columns (required by Feature Store)
-4. Writes to `ml_dataset.iris_features` (canonical BQ feature table)
+4. Writes to `ml_dataset.iris_features` (canonical BQ feature table) using `write_disposition="WRITE_TRUNCATE"` (full refresh, consistent with existing inference component pattern)
 
-Follows the same `@component(base_image="python:3.10", packages_to_install=[...])` pattern as existing components in `pipelines/components/data.py`. Column mappings passed as parameters (since KFP serializes functions and can't import project modules inside the component body).
+Follows the same `@component(base_image=_constants.IMAGE_NAME)` pattern as existing components in `pipelines/components/data.py`. Column mappings passed as parameters to keep the component self-contained (even though the package is available in the base image — see Decision #4).
 
 ### Step 3: Feature Store Infrastructure Setup Script
 
@@ -51,13 +51,14 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 
 ### Step 4: Feature Store Sync KFP Component
 
-**Create `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/feature_store_sync.py`** — a `@component` that triggers a manual `FeatureView.sync()` after ingestion so the online store has fresh data.
+**Create `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/feature_sync.py`** — a `@component` that triggers a manual `FeatureView.sync()` after ingestion so the online store has fresh data.
 
 ### Step 5: Modify Training Pipeline
 
 **Add new component in `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/data.py`**: `load_data_from_feature_store`
 - Reads from canonical BQ feature table (`iris_features`) instead of raw `iris` table
-- Same train/test split logic as existing `load_data`
+- Drops `entity_id` and `feature_timestamp` columns before train/test split (Feature Store metadata, not model features)
+- Same train/test split logic as existing `load_data`, but references lowercase `species` (canonical name)
 - No column renaming needed — canonical table already has standardized names
 - Keep existing `load_data` as reference
 
@@ -75,15 +76,10 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 **Create `src/ml_pipelines_kfp/iris_xgboost/feature_store/online_serving.py`**:
 - `fetch_online_features(entity_ids)` — wraps `FeatureView.read()`, returns DataFrame
 
-**Modify `src/ml_pipelines_kfp/iris_xgboost/server.py`**:
-- Add `/predict_by_id` endpoint: accepts entity IDs to fetches features from online store to runs prediction
+**Modify `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/fastapi_server.py`**:
+- Add `/predict_by_id` endpoint: accepts entity IDs, fetches features from online store, runs prediction
 - Existing `/predict` endpoint stays (raw feature input path still works)
-
-**Standardize health endpoint to `/health/live`**:
-- Modify `fastapi_server.py` (`components/fastapi/`) — rename `/health` to `/health/live`
-- This aligns with the Vertex AI `health_route="/health/live"` already set in `register.py`
-- Update the root `/` response to reference `/health/live` instead of `/health`
-- Update `deploy.py` health check test to call `/health/live`
+- Health endpoint (`/health/live`), root response, and deploy.py health check are already correct — no changes needed
 
 ### Step 7: Fix Batch Inference
 
@@ -97,8 +93,8 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 
 ### Step 8: Update Streaming Path
 
-**Modify `src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py`**:
-- Update `CallFastAPIService` payload to use canonical column names (works because Instance model now accepts both via aliases)
+**Modify `src/dataflow/iris_streaming_pipeline.py`**:
+- Simplify the field mapping in `BatchCallFastAPIService._call_async` (lines 96-104) — send canonical names (`sepal_length_cm`, etc.) instead of mapping from snake_case to CamelCase (works because the Instance model now accepts both via aliases)
 - Add commented alternative showing the `/predict_by_id` pattern where Pub/Sub sends entity IDs and features are fetched from the online store
 
 ### Step 9: Dependency + Docs
@@ -115,9 +111,9 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 |--------|------|-------------|
 | Create | `feature_store/__init__.py` | Package init |
 | Create | `feature_store/feature_definitions.py` | Canonical names, mappings, resource IDs |
-| Create | `feature_store/ingest.py` | KFP component: raw BQ to canonical feature table |
 | Create | `feature_store/online_serving.py` | Utility: online store reads |
-| Create | `pipelines/components/feature_store_sync.py` | KFP component: trigger FeatureView sync |
+| Create | `pipelines/components/feature_ingest.py` | KFP component: raw BQ → canonical feature table |
+| Create | `pipelines/components/feature_sync.py` | KFP component: trigger FeatureView sync |
 | Create | `scripts/setup_feature_store.py` | One-time infra setup |
 | Modify | `constants.py` | Add feature store constants |
 | Modify | `pipelines/components/data.py` | Add `load_data_from_feature_store` component |
@@ -125,14 +121,12 @@ Follows the same `@component(base_image="python:3.10", packages_to_install=[...]
 | Modify | `pipelines/components/inference.py` | Read from canonical table, remove conditional rename |
 | Modify | `pipelines/iris_pipeline_inference.py` | Point to feature table |
 | Modify | `models/instance.py` | Canonical names + aliases + EntityInstance |
-| Modify | `server.py` | Add `/predict_by_id` endpoint |
-| Modify | `pipelines/components/fastapi/fastapi_server.py` | Rename `/health` to `/health/live`, update root response |
-| Modify | `pipelines/components/deploy.py` | Update health check test to `/health/live` |
-| Modify | `dataflow/iris_streaming_pipeline.py` | Use canonical column names |
-| Modify | `pyproject.toml` | Bump aiplatform version |
-| Modify | `Readme.md` | Feature Store docs |
+| Modify | `pipelines/components/fastapi/fastapi_server.py` | Add `/predict_by_id` endpoint |
+| Modify | `src/dataflow/iris_streaming_pipeline.py`* | Simplify field mapping to canonical names |
+| Modify | `pyproject.toml`* | Bump aiplatform version |
+| Modify | `Readme.md`* | Feature Store docs |
 
-All paths above are relative to `src/ml_pipelines_kfp/iris_xgboost/` unless otherwise shown.
+All paths above are relative to `src/ml_pipelines_kfp/iris_xgboost/` unless marked with `*` (repo-root-relative).
 
 ---
 
@@ -141,7 +135,7 @@ All paths above are relative to `src/ml_pipelines_kfp/iris_xgboost/` unless othe
 1. **Feature Store V2 (BigQuery-backed)**, not the deprecated Legacy Feature Store — data already lives in BQ, and this is the current Google-recommended approach.
 2. **New `load_data_from_feature_store` component** alongside existing `load_data` (not replacing it) — keeps the original as reference since this is a learning repo.
 3. **Pydantic aliases for backward compat** — the Instance model accepts both `SepalLengthCm` and `sepal_length_cm`, so existing consumers don't break.
-4. **Column mappings as component parameters** — KFP components run in isolated containers and can't import project modules, so canonical names are passed in rather than imported.
+4. **Column mappings as component parameters** — although the package is available in the base image (existing components like `inference.py` and `data.py` import `ml_pipelines_kfp.log` inside the function body), passing mappings as parameters keeps the ingestion component self-contained and decoupled from the feature_definitions module.
 5. **Model retraining required** — after this change, models will be trained on canonical column names. First deployment needs a fresh training run.
 
 ---
