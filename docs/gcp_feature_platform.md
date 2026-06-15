@@ -112,7 +112,7 @@ Training data (`ml_dataset.iris`) and inference input (`ml_dataset.iris_batch_in
 3. `ingest.py` reads from both tables → writes canonical versions to `ml_dataset.iris_features`
 4. Batch inference scores from `iris_features` — training rows have `species`, inference rows have `species IS NULL`
 
-### Step 3: Feature Ingestion
+### Step 3: Feature Ingestion ✅
 
 **Create `src/feature_store/ingest.py`** — standalone Python script (run directly, not a KFP component):
 1. Reads raw data from `ml_dataset.iris` (BQ)
