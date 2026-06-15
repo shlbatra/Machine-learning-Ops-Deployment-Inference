@@ -47,6 +47,7 @@ def load_iris_to_bigquery():
         }
     )
     df.insert(0, "Id", range(1, len(df) + 1))
+    df["source"] = "training"
     df["load_timestamp"] = datetime.now(timezone.utc)
 
     client = bigquery.Client(project=PROJECT)
@@ -102,6 +103,7 @@ def generate_random_iris_data(n: int):
         for col, (lo, hi) in FEATURE_RANGES.items():
             row[col] = round(random.uniform(lo, hi), 1)
         row["Species"] = None
+        row["source"] = "batch_input"
         row["load_timestamp"] = datetime.now(timezone.utc)
         rows.append(row)
 
