@@ -78,6 +78,8 @@ jobs:
             --project_id ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --service_url ${{ steps.service_url.outputs.url }} \
+            --batch_size 50 \
+            --max_batch_duration_secs 1.0 \
             --runner DataflowRunner \
             --job_name $JOB_NAME \
             --temp_location ${{ env.TEMP_LOCATION }} \
