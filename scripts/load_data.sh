@@ -8,4 +8,4 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../../.." && pwd )"
 export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_ROOT/deeplearning-sahil-e50332de6687.json"
 
 # Run the BigQuery data loader script
-python "$SCRIPT_DIR/bq_dataloader.py"
+python "$SCRIPT_DIR/bq_dataloader.py" "$@"
