@@ -82,7 +82,7 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 
 ## Implementation Steps
 
-### Step 1: Feature Definitions (foundation)
+### Step 1: Feature Definitions (foundation) ✅
 
 **Create `src/feature_store/schema.py`** — shared `FeatureConfig` dataclass that defines the contract every ML project must follow: feature columns, entity/target/timestamp column names, column mappings (source → canonical), BQ table references, and Feature Store resource IDs. Frozen dataclass for immutability. Includes a `canonical_to_source` property for reverse lookups.
 
@@ -97,7 +97,7 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 
 To add a new ML project, create `src/feature_store/<project>/feature_definitions.py` with its own `FeatureConfig` instance — same contract, different values.
 
-### Step 2: Simulate New Data for Inference
+### Step 2: Simulate New Data for Inference ✅
 
 **Modify `scripts/bq_dataloader.py`** — add a function to generate random iris-like rows and append them to `ml_dataset.iris`:
 - Generate N random rows with realistic feature ranges (e.g. `sepal_length` 4.3–7.9, `sepal_width` 2.0–4.4, etc. based on min/max from the real dataset)
