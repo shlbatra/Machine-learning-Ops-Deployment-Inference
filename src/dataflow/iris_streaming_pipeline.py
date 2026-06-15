@@ -224,7 +224,7 @@ def run_pipeline(argv=None):
             table=known_args.output_table,
             schema=PREDICTION_SCHEMA,
             write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
-            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+            create_disposition=beam.io.BigQueryDisposition.CREATE_NEVER,
             additional_bq_parameters={
                 "timePartitioning": {"type": "DAY", "field": "prediction_timestamp"}
             },
