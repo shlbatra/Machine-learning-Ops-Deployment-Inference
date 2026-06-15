@@ -82,15 +82,23 @@ def _batch_input_table_ref() -> str:
 def generate_random_iris_data(n: int):
     """Generate N random unlabeled iris rows to a separate batch input table.
 
-    Rows get auto-incrementing Id values and no Species label, simulating
-    new data arriving for scoring. Written to ml_dataset.iris_batch_input
-    with WRITE_TRUNCATE so each run is a fresh scoring batch.
+    Rows are appended to ml_dataset.iris_batch_input with WRITE_APPEND so
+    data accumulates across daily runs. Id values continue from the current
+    max in the table.
     """
     client = bigquery.Client(project=PROJECT)
 
+    table_ref = _batch_input_table_ref()
+    query = f"SELECT COALESCE(MAX(Id), 0) AS max_id FROM `{table_ref}`"
+    try:
+        max_id = next(iter(client.query(query).result())).max_id
+    except Exception:
+        max_id = 0
+    logger.info(f"Current max Id in {BATCH_INPUT_TABLE}: {max_id}")
+
     rows = []
     for i in range(n):
-        row = {"Id": i + 1}
+        row = {"Id": max_id + i + 1}
         for col, (lo, hi) in FEATURE_RANGES.items():
             row[col] = round(random.uniform(lo, hi), 1)
         row["Species"] = None
@@ -100,7 +108,7 @@ def generate_random_iris_data(n: int):
     df = pd.DataFrame(rows)
 
     job_config = bigquery.LoadJobConfig(
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
     )
 
     try:
@@ -108,7 +116,7 @@ def generate_random_iris_data(n: int):
             df, _batch_input_table_ref(), job_config=job_config
         )
         load_job.result()
-        logger.info(f"Wrote {n} random unlabeled rows to {_batch_input_table_ref()}")
+        logger.info(f"Appended {n} random unlabeled rows (Id {max_id + 1}–{max_id + n}) to {_batch_input_table_ref()}")
     except Exception as e:
         logger.error(f"Error writing batch input data: {str(e)}")
         raise
