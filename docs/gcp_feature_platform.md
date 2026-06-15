@@ -55,7 +55,7 @@ The online store is synced from the offline store by `sync.py`. It always serves
 
 ### How this applies to the Iris example
 
-The original iris dataset is 150 labeled rows. To demonstrate the training vs inference split, `bq_dataloader.py` can also append random unlabeled rows simulating new data arriving for scoring. Here's the concrete flow:
+The original iris dataset is 150 labeled rows. To demonstrate the training vs inference split, `bq_dataloader.py` writes random unlabeled rows to a **separate** `iris_batch_input` table, keeping training and inference data isolated. Here's the concrete flow:
 
 **Setup (one-time):**
 1. `bq_dataloader.py` loads 150 labeled rows to `ml_dataset.iris` (`WRITE_TRUNCATE`)
@@ -68,10 +68,10 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 - In a production dataset with ongoing ingestion, you'd also filter `feature_timestamp <= training_cutoff_date` for point-in-time correctness
 
 **New data arrives → batch inference:**
-1. `bq_dataloader.py --generate-random N` appends N random unlabeled rows to `ml_dataset.iris` (`WRITE_APPEND`)
-2. `ingest.py` re-runs → `iris_features` now has 150 + N rows, new rows get `feature_timestamp = T2`
+1. `bq_dataloader.py --generate-random N` appends N random unlabeled rows to `ml_dataset.iris_batch_input` (`WRITE_APPEND` — data accumulates across daily runs)
+2. `ingest.py` re-runs, reads from both `iris` and `iris_batch_input` → `iris_features` now has 150 + N rows, new rows get `feature_timestamp = T2`
 3. `sync.py` re-runs → online store updated
-4. Batch inference reads the latest snapshot from `iris_features`, scores all rows (or filters to `species IS NULL` for only new/unlabeled rows), writes predictions to `iris_predictions`
+4. Batch inference reads from `iris_features`, filters to `species IS NULL` for unlabeled rows, writes predictions to `iris_predictions`
 5. The conditional column rename hack (lines 36-48) is gone — all data is already canonical
 
 **Real-time inference:**
@@ -82,7 +82,7 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 
 ## Implementation Steps
 
-### Step 1: Feature Definitions (foundation)
+### Step 1: Feature Definitions (foundation) ✅
 
 **Create `src/feature_store/schema.py`** — shared `FeatureConfig` dataclass that defines the contract every ML project must follow: feature columns, entity/target/timestamp column names, column mappings (source → canonical), BQ table references, and Feature Store resource IDs. Frozen dataclass for immutability. Includes a `canonical_to_source` property for reverse lookups.
 
@@ -97,18 +97,20 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 
 To add a new ML project, create `src/feature_store/<project>/feature_definitions.py` with its own `FeatureConfig` instance — same contract, different values.
 
-### Step 2: Simulate New Data for Inference
+### Step 2: Simulate New Data for Inference ✅
 
-**Modify `scripts/bq_dataloader.py`** — add a function to generate random iris-like rows and append them to `ml_dataset.iris`:
+**Modify `scripts/bq_dataloader.py`** — add a function to generate random iris-like rows and write them to a **separate** `ml_dataset.iris_batch_input` table:
 - Generate N random rows with realistic feature ranges (e.g. `sepal_length` 4.3–7.9, `sepal_width` 2.0–4.4, etc. based on min/max from the real dataset)
-- Assign new `Id` values continuing from the existing max (150+)
+- Auto-incrementing `Id` values continuing from the current max in the table
 - No `Species` label — these are unlabeled rows simulating new data arriving for scoring
-- Write with `WRITE_APPEND` (adds to existing data, doesn't overwrite the training rows)
+- Write with `WRITE_APPEND` (data accumulates across daily runs)
+- Both tables include `load_timestamp` for downstream `feature_timestamp` tracking
 
-This gives batch inference new rows to score. The flow becomes:
-1. `bq_dataloader.py` loads original 150 rows (existing, `WRITE_TRUNCATE`) + optionally appends random new rows (`WRITE_APPEND`)
-2. `ingest.py` reads all rows from `ml_dataset.iris` → writes canonical version to `ml_dataset.iris_features`
-3. Batch inference scores the latest snapshot from `iris_features` — including the new rows
+Training data (`ml_dataset.iris`) and inference input (`ml_dataset.iris_batch_input`) stay in separate tables so training data is never mixed with unlabeled scoring data. The flow becomes:
+1. `bq_dataloader.py` loads original 150 rows to `ml_dataset.iris` (`WRITE_TRUNCATE`)
+2. `bq_dataloader.py --generate-random N` writes N rows to `ml_dataset.iris_batch_input` (`WRITE_TRUNCATE`)
+3. `ingest.py` reads from both tables → writes canonical versions to `ml_dataset.iris_features`
+4. Batch inference scores from `iris_features` — training rows have `species`, inference rows have `species IS NULL`
 
 ### Step 3: Feature Ingestion
 

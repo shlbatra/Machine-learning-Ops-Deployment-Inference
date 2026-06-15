@@ -29,6 +29,7 @@ IRIS_CONFIG = FeatureConfig(
     },
     bq_dataset="ml_dataset",
     bq_raw_table="iris",
+    bq_batch_input_table="iris_batch_input",
     bq_feature_table="iris_features",
     online_store_id="iris_online_store",
     feature_view_id="iris_features",

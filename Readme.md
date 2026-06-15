@@ -90,12 +90,17 @@ Safe default: if `ENVIRONMENT` is not set, staging is used — you can't acciden
 
 ## Usage
 
-### 1. Load Training Data to BigQuery
+### 1. Load Data to BigQuery
 
 ```bash
-# Set up credentials and load Iris dataset
-./src/ml_pipelines_kfp/iris_xgboost/load_data.sh
+# Load the original 150 labeled iris rows (WRITE_TRUNCATE)
+./scripts/load_data.sh
+
+# Append N random unlabeled rows for batch inference scoring (WRITE_APPEND)
+./scripts/load_data.sh --generate-random 20
 ```
+
+The base load writes 150 labeled training rows to `ml_dataset.iris`. The `--generate-random` flag writes N unlabeled rows to a separate `ml_dataset.iris_batch_input` table, simulating new data arriving for batch inference scoring. Both tables include `Id` and `load_timestamp` columns for downstream ingestion.
 
 ### 2. Run Training Pipeline
 

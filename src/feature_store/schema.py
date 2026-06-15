@@ -28,6 +28,8 @@ class FeatureConfig:
     bq_dataset: str = ""
     # Raw ingestion table written by bq_dataloader, e.g. "iris"
     bq_raw_table: str = ""
+    # Separate table for unlabeled batch inference input data
+    bq_batch_input_table: str = ""
     # Canonical feature table used as the offline store for training and batch inference
     bq_feature_table: str = ""
 
