@@ -100,7 +100,7 @@ Safe default: if `ENVIRONMENT` is not set, staging is used — you can't acciden
 ./scripts/load_data.sh --generate-random 20
 ```
 
-The base load writes 150 labeled rows with an `Id` (1–150) and `load_timestamp` to `ml_dataset.iris`. The `--generate-random` flag appends N unlabeled rows (no `Species`) with auto-incrementing Ids, simulating new data arriving for scoring. Each load is timestamped so downstream ingestion can preserve the T1/T2 distinction.
+The base load writes 150 labeled training rows to `ml_dataset.iris`. The `--generate-random` flag writes N unlabeled rows to a separate `ml_dataset.iris_batch_input` table, simulating new data arriving for batch inference scoring. Both tables include `Id` and `load_timestamp` columns for downstream ingestion.
 
 ### 2. Run Training Pipeline
 

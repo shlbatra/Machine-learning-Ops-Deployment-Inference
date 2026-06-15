@@ -12,6 +12,7 @@ logger = get_logger(__name__)
 PROJECT = "deeplearning-sahil"
 DATASET = "ml_dataset"
 TABLE = "iris"
+BATCH_INPUT_TABLE = "iris_batch_input"
 
 FEATURE_RANGES = {
     "SepalLengthCm": (4.3, 7.9),
@@ -74,21 +75,22 @@ def load_iris_to_bigquery():
         raise
 
 
-def generate_random_iris_data(n: int):
-    """Generate N random unlabeled iris rows and append them to BQ.
+def _batch_input_table_ref() -> str:
+    return f"{PROJECT}.{DATASET}.{BATCH_INPUT_TABLE}"
 
-    Rows get Id values continuing from the current max in the table (150+)
-    and have no Species label, simulating new data arriving for scoring.
+
+def generate_random_iris_data(n: int):
+    """Generate N random unlabeled iris rows to a separate batch input table.
+
+    Rows get auto-incrementing Id values and no Species label, simulating
+    new data arriving for scoring. Written to ml_dataset.iris_batch_input
+    with WRITE_TRUNCATE so each run is a fresh scoring batch.
     """
     client = bigquery.Client(project=PROJECT)
 
-    query = f"SELECT COALESCE(MAX(Id), 0) AS max_id FROM `{_table_ref()}`"
-    max_id = next(iter(client.query(query).result())).max_id
-    logger.info(f"Current max Id in table: {max_id}")
-
     rows = []
     for i in range(n):
-        row = {"Id": max_id + i + 1}
+        row = {"Id": i + 1}
         for col, (lo, hi) in FEATURE_RANGES.items():
             row[col] = round(random.uniform(lo, hi), 1)
         row["Species"] = None
@@ -98,17 +100,17 @@ def generate_random_iris_data(n: int):
     df = pd.DataFrame(rows)
 
     job_config = bigquery.LoadJobConfig(
-        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
 
     try:
         load_job = client.load_table_from_dataframe(
-            df, _table_ref(), job_config=job_config
+            df, _batch_input_table_ref(), job_config=job_config
         )
         load_job.result()
-        logger.info(f"Appended {n} random unlabeled rows (Id {max_id + 1}–{max_id + n}) to {_table_ref()}")
+        logger.info(f"Wrote {n} random unlabeled rows to {_batch_input_table_ref()}")
     except Exception as e:
-        logger.error(f"Error appending random data: {str(e)}")
+        logger.error(f"Error writing batch input data: {str(e)}")
         raise
 
 
