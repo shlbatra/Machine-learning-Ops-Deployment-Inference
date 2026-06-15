@@ -10,10 +10,27 @@ on:
           - staging
           - prod
         default: staging
+      region:
+        description: "GCP region for Dataflow job"
+        type: choice
+        options:
+          - us-central1
+          - us-east1
+          - us-west1
+        default: us-central1
+      worker_machine_type:
+        description: "Worker VM machine type"
+        type: choice
+        options:
+          - e2-standard-2
+          - n1-standard-2
+          - e2-standard-4
+          - n1-standard-4
+        default: e2-standard-2
 
 env:
   PROJECT_ID: "deeplearning-sahil"
-  REGION: "us-central1"
+  REGION: ${{ inputs.region }}
   PUBSUB_TOPIC: "projects/deeplearning-sahil/topics/iris-inference-data"
   TEMP_LOCATION: "gs://sb-vertex/temp"
   STAGING_LOCATION: "gs://sb-vertex/staging"
@@ -86,6 +103,7 @@ jobs:
             --staging_location ${{ env.STAGING_LOCATION }} \
             --service_account_email ${{ env.SERVICE_ACCOUNT_EMAIL }} \
             --use_public_ips \
+            --worker_machine_type ${{ inputs.worker_machine_type }} \
             --max_num_workers 3 \
             --autoscaling_algorithm THROUGHPUT_BASED \
             --streaming \
