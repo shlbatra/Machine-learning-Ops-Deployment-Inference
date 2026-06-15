@@ -74,8 +74,11 @@ class BatchCallFastAPIService(beam.DoFn):
 
     def setup(self):
         self._loop = asyncio.new_event_loop()
-        self._connector = aiohttp.TCPConnector(limit=self.max_concurrent)
-        self._session = aiohttp.ClientSession(connector=self._connector)
+        self._session = self._loop.run_until_complete(self._create_session())
+
+    async def _create_session(self):
+        connector = aiohttp.TCPConnector(limit=self.max_concurrent)
+        return aiohttp.ClientSession(connector=connector)
 
     def teardown(self):
         self._loop.run_until_complete(self._session.close())
