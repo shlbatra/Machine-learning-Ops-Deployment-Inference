@@ -122,7 +122,7 @@ Training data (`ml_dataset.iris`) and inference input (`ml_dataset.iris_batch_in
 
 This is a data prep step that runs independently before the pipeline, similar to `setup.py` and the existing `scripts/bq_dataloader.py`. No KFP orchestration needed.
 
-### Step 4: Feature Store Infrastructure Setup Script
+### Step 4: Feature Store Infrastructure Setup Script ✅
 
 **Create `src/feature_store/setup.py`** — standalone, idempotent script (run once):
 1. Creates a shared `FeatureOnlineStore` (Bigtable-backed) named `ml_online_store` — a single online store that hosts FeatureViews for all ML projects (iris, fraud, churn, etc.)
@@ -131,7 +131,7 @@ This is a data prep step that runs independently before the pipeline, similar to
 4. Reads `online_store_id` and `feature_view_id` from `feature_definitions.py` — adding a new ML project means creating its own `FeatureConfig` with a new `feature_view_id` under the same shared `online_store_id`
 5. Idempotent: skips creation if resources already exist
 
-### Step 5: Feature Store Sync
+### Step 5: Feature Store Sync ✅
 
 **Create `src/feature_store/sync.py`** — standalone script that triggers a manual `FeatureView.sync()` after ingestion so the online store has fresh data. Run after `ingest.py` — both are pre-pipeline prep steps.
 
