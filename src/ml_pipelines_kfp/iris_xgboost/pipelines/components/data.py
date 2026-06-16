@@ -75,10 +75,12 @@ def load_data_from_feature_store(
     logger.info(f"Loading training data from feature table {table_ref}")
 
     client = bigquery.Client()
-    df = client.query(
-        f"SELECT * FROM `{table_ref}` WHERE species IS NOT NULL"
-    ).result().to_dataframe()
 
+    dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)
+    table = bigquery.Table(dataset_ref.table(bq_feature_table))
+    df = client.list_rows(table).to_dataframe()
+
+    df = df[df["species"].notna()]
     logger.info(f"Loaded {len(df)} labeled rows from feature store")
 
     df = df.drop(
