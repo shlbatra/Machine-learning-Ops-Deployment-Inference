@@ -13,18 +13,18 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     REGION,
     SERVICE_ACCOUNT,
     BQ_DATASET,
-    BQ_TABLE,
+    BQ_FEATURE_TABLE,
     BQ_TABLE_PREDICTIONS,
     SERVICE_ACCOUNT_PATH,
 )
 
 
-@kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
+@kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-inference", pipeline_root=PIPELINE_ROOT)
 def pipeline(
     project_id: str,
     location: str,
     bq_dataset: str,
-    bq_table: str,
+    bq_feature_table: str,
     bq_table_predictions: str,
 ):
 
@@ -46,7 +46,7 @@ def pipeline(
             location=location,
             model=get_model_op.outputs["latest_model"],
             bq_dataset=bq_dataset,
-            bq_table=bq_table,
+            bq_feature_table=bq_feature_table,
             bq_table_predictions=bq_table_predictions,
         )
         .set_display_name("Inference Model")
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--project-id", default=PROJECT_ID)
     parser.add_argument("--region", default=REGION)
     parser.add_argument("--bq-dataset", default=BQ_DATASET)
-    parser.add_argument("--bq-table", default=BQ_TABLE)
+    parser.add_argument("--bq-feature-table", default=BQ_FEATURE_TABLE)
     parser.add_argument("--bq-table-predictions", default=BQ_TABLE_PREDICTIONS)
     parser.add_argument("--service-account-path", default=SERVICE_ACCOUNT_PATH)
     cli = parser.parse_args()
@@ -76,16 +76,16 @@ if __name__ == "__main__":
     kfp.compiler.Compiler().compile(
         pipeline_func=pipeline,
         package_path="pipeline.yaml",
-        pipeline_name=PIPELINE_NAME,
+        pipeline_name=f"{PIPELINE_NAME}-inference",
     )
     job = aip.PipelineJob(
-        display_name=PIPELINE_NAME,
+        display_name=f"{PIPELINE_NAME}-inference",
         template_path="pipeline.yaml",
         pipeline_root=PIPELINE_ROOT,
         enable_caching=False,
         parameter_values={
             "bq_dataset": cli.bq_dataset,
-            "bq_table": cli.bq_table,
+            "bq_feature_table": cli.bq_feature_table,
             "bq_table_predictions": cli.bq_table_predictions,
             "location": cli.region,
             "project_id": cli.project_id,

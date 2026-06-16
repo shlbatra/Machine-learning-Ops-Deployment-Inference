@@ -11,8 +11,6 @@ def get_model(
 ):
     from google.cloud import aiplatform, aiplatform_v1
     import fsspec
-    import gcsfs
-    import joblib
     from ml_pipelines_kfp.log import get_logger
 
     logger = get_logger(__name__)
@@ -23,23 +21,23 @@ def get_model(
         client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
     )
 
-    request = {
+    parent_models = list(client.list_models(request={
         "parent": f"projects/{project_id}/locations/{location}",
         "filter": f"display_name={model_name}",
-    }
-    parent_models = list(client.list_models(request=request))
-    parent_model = parent_models[0] if parent_models else None
+    }))
 
-    if not parent_model:
+    if not parent_models:
         logger.error(f"Could not find model: {model_name}")
         return
 
-    logger.info(f"Found model: {parent_model.name}, artifact_uri: {parent_model.artifact_uri}")
+    blessed = client.get_model(name=parent_models[0].name + "@blessed")
+
+    logger.info(f"Found blessed model: {blessed.name}, version: {blessed.version_id}, artifact_uri: {blessed.artifact_uri}")
 
     latest_model_path = latest_model.path.replace("/gcs/", "gs://")
-    fs, _ = fsspec.core.url_to_fs(parent_model.artifact_uri)
+    fs, _ = fsspec.core.url_to_fs(blessed.artifact_uri)
     fs.copy(
-        parent_model.artifact_uri + "/",
+        blessed.artifact_uri + "/",
         latest_model_path,
         recursive=True,
     )
