@@ -102,7 +102,25 @@ Safe default: if `ENVIRONMENT` is not set, staging is used — you can't acciden
 
 The base load writes 150 labeled training rows to `ml_dataset.iris`. The `--generate-random` flag writes N unlabeled rows to a separate `ml_dataset.iris_batch_input` table, simulating new data arriving for batch inference scoring. Both tables include `Id` and `load_timestamp` columns for downstream ingestion.
 
-### 2. Run Training Pipeline
+### 2. Feature Store Setup
+
+Set up the Feature Store online store and feature view. Run once per ML project before training.
+
+```bash
+# Default (iris project)
+./scripts/setup_feature_store.sh
+
+# Specify a different ML project config
+./scripts/setup_feature_store.sh --config fraud
+
+# Override GCP project and region
+./scripts/setup_feature_store.sh --config iris --project my-project --region us-east1
+
+# See all options
+./scripts/setup_feature_store.sh --help
+```
+
+### 3. Run Training Pipeline
 
 #### Staging
 
@@ -142,7 +160,7 @@ python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipeline_training.py --h
 
 **Image configuration:** `PIPELINE_BASE_IMAGE` and `PIPELINE_FASTAPI_IMAGE` env vars control which Docker images are baked into the compiled pipeline. KFP resolves `base_image` at compile time, so these must be set before running the script. Staging defaults to the branch tag; production defaults to `main`.
 
-### 3. Run Batch Inference Pipeline
+### 4. Run Batch Inference Pipeline
 
 #### Staging
 
@@ -162,7 +180,7 @@ ENVIRONMENT=prod python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipelin
 
 Predictions are written to `ml_dataset.iris_predictions`.
 
-### 4. Real-time Streaming Inference
+### 5. Real-time Streaming Inference
 
 Deploy a Dataflow streaming job for real-time inference:
 
