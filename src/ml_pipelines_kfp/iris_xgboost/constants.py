@@ -7,6 +7,7 @@ from ml_pipelines_kfp.constants import (  # noqa: F401
 # --- Shared across environments ---
 BQ_DATASET = "ml_dataset"
 BQ_TABLE = "iris"
+BQ_FEATURE_TABLE = "iris_features"
 PUBSUB_TOPIC = "iris-inference-data"
 PUBSUB_SUBSCRIPTION = "iris-inference-data-sub"
 

@@ -19,6 +19,7 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     ENDPOINT_NAME,
     BQ_DATASET,
     BQ_TABLE,
+    BQ_FEATURE_TABLE,
     FASTAPI_IMAGE_NAME,
 )
 
@@ -28,10 +29,12 @@ def coalesce(*args):
 
 
 @kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
-def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
+def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: str):
 
     # Import components
-    from ml_pipelines_kfp.iris_xgboost.pipelines.components.data import load_data
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.data import (
+        load_data_from_feature_store,
+    )
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.schema import load_schema
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.evaluation import (
         choose_best_model,
@@ -46,9 +49,11 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_table: str):
     )
 
     # Start pipeline definition
-    data_op = load_data(
-        project_id=project_id, bq_dataset=bq_dataset, bq_table=bq_table
-    ).set_display_name("Load data from BigQuery")
+    data_op = load_data_from_feature_store(
+        project_id=project_id,
+        bq_dataset=bq_dataset,
+        bq_feature_table=bq_feature_table,
+    ).set_display_name("Load data from Feature Store")
 
     schema_load = load_schema(repo_root=REPO_ROOT).set_display_name(
         "Load schema relevant to model"
@@ -107,6 +112,7 @@ if __name__ == "__main__":
     parser.add_argument("--fastapi-image-name")
     parser.add_argument("--bq-dataset")
     parser.add_argument("--bq-table")
+    parser.add_argument("--bq-feature-table")
     parser.add_argument("--service-account")
     parser.add_argument("--service-account-path")
     cli = parser.parse_args()
@@ -119,6 +125,7 @@ if __name__ == "__main__":
     pipeline_root = coalesce(cli.pipeline_root, PIPELINE_ROOT)
     bq_dataset = coalesce(cli.bq_dataset, BQ_DATASET)
     bq_table = coalesce(cli.bq_table, BQ_TABLE)
+    bq_feature_table = coalesce(cli.bq_feature_table, BQ_FEATURE_TABLE)
     MODEL_NAME = coalesce(cli.model_name, os.getenv("MODEL_NAME"), MODEL_NAME)
     project_id = coalesce(cli.project_id, os.getenv("PROJECT_ID"), PROJECT_ID)
     region = coalesce(cli.region, os.getenv("REGION"), REGION)
@@ -145,7 +152,7 @@ if __name__ == "__main__":
         enable_caching=False,
         parameter_values={
             "bq_dataset": bq_dataset,
-            "bq_table": bq_table,
+            "bq_feature_table": bq_feature_table,
             "location": region,
             "project_id": project_id,
         },
