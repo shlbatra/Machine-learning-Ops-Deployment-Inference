@@ -80,8 +80,8 @@ def load_data_from_feature_store(
     table = bigquery.Table(dataset_ref.table(bq_feature_table))
     df = client.list_rows(table).to_dataframe()
 
-    df = df[df["species"].notna()]
-    logger.info(f"Loaded {len(df)} labeled rows from feature store")
+    df = df[df["source"] == "training"]
+    logger.info(f"Loaded {len(df)} training rows from feature store")
 
     df = df.drop(
         columns=["entity_id", "feature_timestamp", "source"],
