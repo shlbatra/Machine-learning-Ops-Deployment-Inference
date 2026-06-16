@@ -23,11 +23,11 @@ def choose_best_model(
     dt = joblib.load(decision_tree_model.path)
     rf = joblib.load(random_forest_model.path)
 
-    dt_pred = dt.predict(test_data.drop("Species", axis=1))
-    rf_pred = rf.predict(test_data.drop("Species", axis=1))
+    dt_pred = dt.predict(test_data.drop("species", axis=1))
+    rf_pred = rf.predict(test_data.drop("species", axis=1))
 
-    dt_accuracy = accuracy_score(test_data["Species"], dt_pred)
-    rf_accuracy = accuracy_score(test_data["Species"], rf_pred)
+    dt_accuracy = accuracy_score(test_data["species"], dt_pred)
+    rf_accuracy = accuracy_score(test_data["species"], rf_pred)
 
     metrics.log_metric("Decision Tree (Accuracy)", (dt_accuracy))
     metrics.log_metric("Random Forest (Accuracy)", (rf_accuracy))

@@ -54,3 +54,59 @@ def load_data(
 
     X_train.to_csv(f"{train_dataset.path}", index=False)
     X_test.to_csv(f"{test_dataset.path}", index=False)
+
+
+@component(base_image=_constants.IMAGE_NAME)
+def load_data_from_feature_store(
+    project_id: str,
+    bq_dataset: str,
+    bq_feature_table: str,
+    train_dataset: Output[Dataset],
+    test_dataset: Output[Dataset],
+):
+    import pandas as pd
+    from google.cloud import bigquery
+    from sklearn.model_selection import train_test_split
+    from ml_pipelines_kfp.log import get_logger
+
+    logger = get_logger(__name__)
+
+    table_ref = f"{project_id}.{bq_dataset}.{bq_feature_table}"
+    logger.info(f"Loading training data from feature table {table_ref}")
+
+    client = bigquery.Client(project=project_id)
+
+    query = f"""
+        SELECT * FROM `{project_id}.{bq_dataset}.{bq_feature_table}`
+        WHERE source = 'training'
+    """
+    df = client.query(query).result().to_dataframe()
+
+    logger.info(f"Loaded {len(df)} training rows from feature store")
+
+    df = df.drop(
+        columns=["entity_id", "feature_timestamp", "source"],
+        errors="ignore",
+    )
+
+    df["species"].replace(
+        {
+            "Iris-versicolor": 0,
+            "Iris-virginica": 1,
+            "Iris-setosa": 2,
+        },
+        inplace=True,
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        df.drop(["species"], axis=1),
+        df["species"],
+        test_size=0.2,
+        random_state=42,
+    )
+
+    X_train["species"] = y_train
+    X_test["species"] = y_test
+
+    X_train.to_csv(f"{train_dataset.path}", index=False)
+    X_test.to_csv(f"{test_dataset.path}", index=False)
