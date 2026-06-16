@@ -46,39 +46,35 @@ FEATURE_TABLE_SCHEMA = {
 
 
 class ParsePubSubMessage(beam.DoFn):
-    """Parse JSON message from Pub/Sub."""
+    """Parse and validate JSON message from Pub/Sub using Pydantic schema."""
 
     def process(self, element):
+        from pydantic import ValidationError
+        from dataflow.schemas import PubSubIrisMessage
+
         try:
             message_data = json.loads(element.decode("utf-8"))
+            validated = PubSubIrisMessage(**message_data)
+            yield validated.model_dump()
 
-            required_fields = [
-                "sepal_length",
-                "sepal_width",
-                "petal_length",
-                "petal_width",
-            ]
-            if all(field in message_data for field in required_fields):
-                yield message_data
-            else:
-                logger.warning(f"Missing required fields in message: {message_data}")
-
+        except ValidationError as e:
+            logger.warning(f"Invalid message: {e}")
         except (json.JSONDecodeError, AttributeError) as e:
             logger.error(f"Error parsing message: {e}, message: {element}")
 
 
 class MapToFeatureRow(beam.DoFn):
-    """Rename Pub/Sub fields to canonical names and add Feature Store metadata."""
+    """Rename validated Pub/Sub fields to canonical names and add Feature Store metadata."""
 
     def process(self, element):
         from datetime import datetime, timezone
 
         row = {
-            canonical: float(element[pubsub_key])
+            canonical: element[pubsub_key]
             for pubsub_key, canonical in PUBSUB_TO_CANONICAL.items()
         }
 
-        sample_id = element.get("sample_id", uuid.uuid4().hex[:8])
+        sample_id = element.get("sample_id") or uuid.uuid4().hex[:8]
         row["species"] = None
         row["source"] = "streaming"
         row["entity_id"] = f"{sample_id}_streaming"
