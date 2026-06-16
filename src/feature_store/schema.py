@@ -33,8 +33,8 @@ class FeatureConfig:
     # Canonical feature table used as the offline store for training and batch inference
     bq_feature_table: str = ""
 
-    # Bigtable-backed online store for low-latency serving lookups
-    online_store_id: str = ""
+    # Bigtable-backed online store shared across ML projects
+    online_store_id: str = "ml_online_store"
     # View that maps the BQ feature table into the online store
     feature_view_id: str = ""
 

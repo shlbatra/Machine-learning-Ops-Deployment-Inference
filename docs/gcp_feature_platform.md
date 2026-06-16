@@ -93,7 +93,7 @@ The original iris dataset is 150 labeled rows. To demonstrate the training vs in
 - Entity ID column name: `entity_id`
 - Target column: `species`
 - Column mappings: `camel` (BQ raw CamelCase → canonical), `snake` (Pub/Sub snake_case → canonical)
-- Feature Store resource name constants (`iris_online_store`, `iris_features`, `iris_features` BQ table)
+- Feature Store resource name constants (`ml_online_store`, `iris_features`, `iris_features` BQ table)
 
 To add a new ML project, create `src/feature_store/<project>/feature_definitions.py` with its own `FeatureConfig` instance — same contract, different values.
 
@@ -125,10 +125,11 @@ This is a data prep step that runs independently before the pipeline, similar to
 ### Step 4: Feature Store Infrastructure Setup Script
 
 **Create `src/feature_store/setup.py`** — standalone, idempotent script (run once):
-1. Creates a `FeatureOnlineStore` (Bigtable-backed) named `iris_online_store`
-2. Creates a `FeatureView` named `iris_features` pointing to `bq://deeplearning-sahil.ml_dataset.iris_features`
+1. Creates a shared `FeatureOnlineStore` (Bigtable-backed) named `ml_online_store` — a single online store that hosts FeatureViews for all ML projects (iris, fraud, churn, etc.)
+2. Creates a project-specific `FeatureView` named `iris_features` pointing to `bq://deeplearning-sahil.ml_dataset.iris_features`
 3. Uses `google.cloud.aiplatform.FeatureOnlineStore.create_bigtable_store()` and `create_feature_view()`
-4. Imports resource name constants from `feature_definitions.py`
+4. Reads `online_store_id` and `feature_view_id` from `feature_definitions.py` — adding a new ML project means creating its own `FeatureConfig` with a new `feature_view_id` under the same shared `online_store_id`
+5. Idempotent: skips creation if resources already exist
 
 ### Step 5: Feature Store Sync
 
