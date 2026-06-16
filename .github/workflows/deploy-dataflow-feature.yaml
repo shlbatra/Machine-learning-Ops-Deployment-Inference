@@ -1,0 +1,110 @@
+name: Deploy Dataflow Feature Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options:
+          - staging
+          - prod
+        default: staging
+      region:
+        description: "GCP region for Dataflow job"
+        type: choice
+        options:
+          - us-central1
+          - us-east1
+          - us-west1
+        default: us-central1
+      worker_machine_type:
+        description: "Worker VM machine type"
+        type: choice
+        options:
+          - e2-standard-2
+          - n1-standard-2
+          - e2-standard-4
+          - n1-standard-4
+        default: e2-standard-2
+      online_batch_size:
+        description: "Max rows per online store write batch"
+        type: choice
+        options:
+          - "50"
+          - "100"
+          - "200"
+        default: "100"
+
+env:
+  PROJECT_ID: "deeplearning-sahil"
+  REGION: ${{ inputs.region }}
+  PUBSUB_TOPIC: "projects/deeplearning-sahil/topics/iris-inference-data"
+  TEMP_LOCATION: "gs://sb-vertex/temp"
+  STAGING_LOCATION: "gs://sb-vertex/staging"
+  SERVICE_ACCOUNT_EMAIL: "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set environment-specific variables
+        run: |
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            echo "OUTPUT_TABLE=${{ env.PROJECT_ID }}:ml_dataset.iris_features" >> $GITHUB_ENV
+            echo "JOB_PREFIX=iris-streaming-features" >> $GITHUB_ENV
+          else
+            echo "OUTPUT_TABLE=${{ env.PROJECT_ID }}:ml_dataset.iris_features" >> $GITHUB_ENV
+            echo "JOB_PREFIX=iris-streaming-features-staging" >> $GITHUB_ENV
+          fi
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Deploy Dataflow feature pipeline
+        run: |
+          JOB_NAME="${{ env.JOB_PREFIX }}-$(date +%Y%m%d-%H%M%S)"
+          echo "Submitting ${{ inputs.environment }} job: $JOB_NAME"
+
+          python src/dataflow/iris_feature_pipeline.py \
+            --input_topic ${{ env.PUBSUB_TOPIC }} \
+            --output_table ${{ env.OUTPUT_TABLE }} \
+            --project_id ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --online_batch_size ${{ inputs.online_batch_size }} \
+            --runner DataflowRunner \
+            --job_name $JOB_NAME \
+            --temp_location ${{ env.TEMP_LOCATION }} \
+            --staging_location ${{ env.STAGING_LOCATION }} \
+            --service_account_email ${{ env.SERVICE_ACCOUNT_EMAIL }} \
+            --use_public_ips \
+            --worker_machine_type ${{ inputs.worker_machine_type }} \
+            --max_num_workers 3 \
+            --autoscaling_algorithm THROUGHPUT_BASED \
+            --streaming \
+            --enable_streaming_engine \
+            --experiments use_runner_v2 \
+            --no_wait
+
+          echo "Job submitted: $JOB_NAME"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Monitor: https://console.cloud.google.com/dataflow/jobs/${{ env.REGION }}?project=${{ env.PROJECT_ID }}"
