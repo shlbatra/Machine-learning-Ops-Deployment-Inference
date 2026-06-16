@@ -12,8 +12,6 @@ def inference_model(
     model: Input[Model],
 ):
     import joblib
-    import pandas as pd
-    import numpy as np
     from google.cloud import bigquery
     from datetime import datetime
     from ml_pipelines_kfp.log import get_logger

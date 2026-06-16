@@ -11,8 +11,6 @@ def get_model(
 ):
     from google.cloud import aiplatform, aiplatform_v1
     import fsspec
-    import gcsfs
-    import joblib
     from ml_pipelines_kfp.log import get_logger
 
     logger = get_logger(__name__)
