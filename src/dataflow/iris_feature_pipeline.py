@@ -50,7 +50,7 @@ class ParsePubSubMessage(beam.DoFn):
 
     def process(self, element):
         from pydantic import ValidationError
-        from dataflow.schemas import PubSubIrisMessage
+        from dataflow.models.iris_schema import PubSubIrisMessage
 
         try:
             message_data = json.loads(element.decode("utf-8"))
