@@ -186,6 +186,12 @@ Decouples feature ingestion from inference. This pipeline's only job is to persi
 - Triggers `FeatureView.sync()` periodically or per-batch so the online store stays fresh
 - Writes to BQ only (no model calls, no prediction output)
 
+**Create `.github/workflows/deploy-dataflow-feature.yaml`** — GitHub Action to deploy the feature pipeline:
+- `workflow_dispatch` with inputs for environment (staging/prod), region, and worker machine type
+- Same pattern as existing `deploy-dataflow.yaml` (checkout, Python setup, install, GCP auth, gcloud CLI)
+- No Cloud Run service URL needed — this pipeline only writes to BQ, no model calls
+- Environment-specific job prefix (`iris-streaming-features-staging` / `iris-streaming-features`)
+
 ### Step 10: Streaming Inference Pipeline (Feature Store → Predictions)
 
 This pipeline reads features from the online store and runs inference — fully decoupled from feature ingestion.
