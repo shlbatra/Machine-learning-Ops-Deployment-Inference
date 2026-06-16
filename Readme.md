@@ -180,7 +180,19 @@ ENVIRONMENT=prod python src/ml_pipelines_kfp/iris_xgboost/pipelines/iris_pipelin
 
 Predictions are written to `ml_dataset.iris_predictions`.
 
-### 5. Real-time Streaming Inference
+### 5. Streaming Feature Ingestion
+
+Deploy a Dataflow streaming job that ingests Pub/Sub messages into the Feature Store (dual-writes to BQ offline store and Bigtable online store):
+
+```bash
+# Staging
+./scripts/deploy_dataflow_feature.sh staging
+
+# Production
+./scripts/deploy_dataflow_feature.sh prod
+```
+
+### 6. Real-time Streaming Inference
 
 Deploy a Dataflow streaming job for real-time inference:
 
@@ -192,11 +204,19 @@ Deploy a Dataflow streaming job for real-time inference:
 ./scripts/deploy_dataflow_streaming.sh prod
 ```
 
-Start generating test data:
+### 7. Publish Pub/Sub Test Events
+
+Generate random Iris data and publish to Pub/Sub for testing streaming pipelines:
 
 ```bash
-python src/ml_pipelines_kfp/iris_xgboost/pubsub_producer.py --project-id=deeplearning-sahil
+# Default: batch_size=10, delay=5s, runs indefinitely
+./scripts/run_pubsub_producer.sh
+
+# Custom: batch_size=20, delay=2s, duration=60s
+./scripts/run_pubsub_producer.sh 20 2 60
 ```
+
+This can be run from any directory — the script resolves paths automatically.
 
 ## Development
 
