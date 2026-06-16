@@ -151,19 +151,12 @@ Training uses the **offline store** — reads historical features from the BQ-ba
 - Assumes `ingest.py` and `sync.py` have already been run before pipeline submission
 - Import and wire the new `load_data_from_feature_store` component
 
-### Step 7: Update Instance Model + FastAPI Server
+### Step 7: Update Instance Model
 
 **Modify `src/ml_pipelines_kfp/iris_xgboost/models/instance.py`**:
 - Switch to canonical field names (`sepal_length_cm`, etc.) as primary, non-optional `float`
 - Add Pydantic `Field(alias="SepalLengthCm")` + `populate_by_name=True` for backward compat
-- Add `EntityInstance(BaseModel)` with `entity_id: str` for online lookup requests
-
-**Create `src/feature_store/online_serving.py`**:
-- `fetch_online_features(entity_ids)` — wraps `FeatureView.read()`, returns DataFrame
-
-**Modify `src/ml_pipelines_kfp/iris_xgboost/pipelines/components/fastapi/fastapi_server.py`**:
-- Add `/predict_by_id` endpoint: accepts entity IDs, fetches features from online store, runs prediction
-- Existing `/predict` endpoint stays (raw feature input path still works)
+- Existing `/predict` endpoint and FastAPI server stay unchanged — no new endpoints needed
 - Health endpoint (`/health/live`), root response, and deploy.py health check are already correct — no changes needed
 
 ### Step 8: Fix Batch Inference (offline features)
@@ -227,15 +220,13 @@ This pipeline reads features from the online store and runs inference — fully 
 | Create | `src/feature_store/iris/feature_definitions.py` | `IRIS_CONFIG` instance with canonical names, mappings, resource IDs |
 | Create | `src/feature_store/ingest.py` | Script: raw BQ → canonical feature table |
 | Create | `src/feature_store/sync.py` | Script: trigger FeatureView sync after ingestion |
-| Create | `src/feature_store/online_serving.py` | Utility: online store reads |
 | Create | `src/feature_store/setup.py` | One-time infra setup script |
 | **`src/ml_pipelines_kfp/` (existing)** | | |
 | Modify | `iris_xgboost/pipelines/components/data.py` | Add `load_data_from_feature_store` component |
 | Modify | `iris_xgboost/pipelines/iris_pipeline_training.py` | Wire feature ingestion + new data loader |
 | Modify | `iris_xgboost/pipelines/components/inference.py` | Read from canonical table, remove conditional rename |
 | Modify | `iris_xgboost/pipelines/iris_pipeline_inference.py` | Point to feature table |
-| Modify | `iris_xgboost/models/instance.py` | Canonical names + aliases + EntityInstance |
-| Modify | `iris_xgboost/pipelines/components/fastapi/fastapi_server.py` | Add `/predict_by_id` endpoint |
+| Modify | `iris_xgboost/models/instance.py` | Canonical names + aliases |
 | **`src/dataflow/` (streaming)** | | |
 | Create | `src/dataflow/iris_feature_pipeline.py` | Streaming feature pipeline: Pub/Sub → Feature Store |
 | Modify | `src/dataflow/iris_streaming_pipeline.py` | Streaming inference pipeline: read from online store → predict |
