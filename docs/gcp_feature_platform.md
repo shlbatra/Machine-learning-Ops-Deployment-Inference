@@ -159,7 +159,7 @@ Training uses the **offline store** — reads historical features from the BQ-ba
 - Existing `/predict` endpoint and FastAPI server stay unchanged — no new endpoints needed
 - Health endpoint (`/health/live`), root response, and deploy.py health check are already correct — no changes needed
 
-### Step 8: Fix Batch Inference (offline features)
+### Step 8: Fix Batch Inference (offline features) ✅
 
 Batch inference also uses the **offline store** — scores features from the BQ feature table in bulk. Same data source as training, different purpose: training splits for model building, inference scores all rows (or a filtered subset) with the trained model.
 
