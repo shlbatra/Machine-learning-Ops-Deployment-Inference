@@ -15,7 +15,11 @@ import argparse
 import importlib
 
 from google.api_core import exceptions as api_exceptions
-from google.cloud import aiplatform
+from google.cloud.aiplatform_v1 import (
+    FeatureOnlineStore,
+    FeatureOnlineStoreAdminServiceClient,
+    FeatureView,
+)
 
 from feature_store.schema import FeatureConfig
 
@@ -37,55 +41,76 @@ def _load_config(name: str) -> FeatureConfig:
     return getattr(module, attr)
 
 
+def _parent(project: str, region: str) -> str:
+    return f"projects/{project}/locations/{region}"
+
+
+def _store_name(project: str, region: str, store_id: str) -> str:
+    return f"{_parent(project, region)}/featureOnlineStores/{store_id}"
+
+
 def _get_or_create_online_store(
-    store_id: str, project: str, region: str
-) -> aiplatform.FeatureOnlineStore:
-    """Return existing online store or create a new Bigtable-backed one."""
+    client: FeatureOnlineStoreAdminServiceClient,
+    store_id: str,
+    project: str,
+    region: str,
+) -> str:
+    """Return existing online store name or create a new Bigtable-backed one."""
+    name = _store_name(project, region, store_id)
     try:
-        store = aiplatform.FeatureOnlineStore(
-            feature_online_store_name=store_id,
-            project=project,
-            location=region,
-        )
+        client.get_feature_online_store(name=name)
         print(f"Online store '{store_id}' already exists — skipping creation.")
-        return store
+        return name
     except api_exceptions.NotFound:
         pass
 
     print(f"Creating online store '{store_id}'...")
-    store = aiplatform.FeatureOnlineStore.create_bigtable_store(
-        name=store_id,
-        project=project,
-        location=region,
+    op = client.create_feature_online_store(
+        parent=_parent(project, region),
+        feature_online_store_id=store_id,
+        feature_online_store=FeatureOnlineStore(
+            bigtable=FeatureOnlineStore.Bigtable(
+                auto_scaling=FeatureOnlineStore.Bigtable.AutoScaling(
+                    min_node_count=1,
+                    max_node_count=1,
+                ),
+            ),
+        ),
     )
+    op.result()
     print(f"Created online store '{store_id}'.")
-    return store
+    return name
 
 
 def _get_or_create_feature_view(
-    store: aiplatform.FeatureOnlineStore,
+    client: FeatureOnlineStoreAdminServiceClient,
+    store_name: str,
     view_id: str,
     bq_uri: str,
     entity_id_column: str,
-) -> aiplatform.FeatureView:
-    """Return existing feature view or create one backed by a BQ table."""
+) -> None:
+    """Create a feature view backed by a BQ table if it doesn't exist."""
+    view_name = f"{store_name}/featureViews/{view_id}"
     try:
-        view = store.get_feature_view(feature_view_id=view_id)
+        client.get_feature_view(name=view_name)
         print(f"Feature view '{view_id}' already exists — skipping creation.")
-        return view
+        return
     except api_exceptions.NotFound:
         pass
 
     print(f"Creating feature view '{view_id}' → {bq_uri}...")
-    view = store.create_feature_view(
-        name=view_id,
-        source=aiplatform.FeatureView.BigQuerySource(
-            uri=bq_uri,
-            entity_id_columns=[entity_id_column],
+    op = client.create_feature_view(
+        parent=store_name,
+        feature_view_id=view_id,
+        feature_view=FeatureView(
+            big_query_source=FeatureView.BigQuerySource(
+                uri=bq_uri,
+                entity_id_columns=[entity_id_column],
+            ),
         ),
     )
+    op.result()
     print(f"Created feature view '{view_id}'.")
-    return view
 
 
 def setup(
@@ -93,13 +118,20 @@ def setup(
     project: str = PROJECT,
     region: str = REGION,
 ) -> None:
-    aiplatform.init(project=project, location=region)
+    endpoint = f"{region}-aiplatform.googleapis.com"
+    client = FeatureOnlineStoreAdminServiceClient(
+        client_options={"api_endpoint": endpoint},
+    )
 
     cfg = _load_config(config_name)
     bq_uri = f"bq://{project}.{cfg.bq_dataset}.{cfg.bq_feature_table}"
 
-    store = _get_or_create_online_store(cfg.online_store_id, project, region)
-    _get_or_create_feature_view(store, cfg.feature_view_id, bq_uri, cfg.entity_id_column)
+    store_name = _get_or_create_online_store(
+        client, cfg.online_store_id, project, region
+    )
+    _get_or_create_feature_view(
+        client, store_name, cfg.feature_view_id, bq_uri, cfg.entity_id_column
+    )
 
     print(f"Feature Store setup complete for '{config_name}'.")
 
