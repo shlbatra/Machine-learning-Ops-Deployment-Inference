@@ -74,13 +74,14 @@ def load_data_from_feature_store(
     table_ref = f"{project_id}.{bq_dataset}.{bq_feature_table}"
     logger.info(f"Loading training data from feature table {table_ref}")
 
-    client = bigquery.Client()
+    client = bigquery.Client(project=project_id)
 
-    dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)
-    table = bigquery.Table(dataset_ref.table(bq_feature_table))
-    df = client.list_rows(table).to_dataframe()
+    query = f"""
+        SELECT * FROM `{project_id}.{bq_dataset}.{bq_feature_table}`
+        WHERE source = 'training'
+    """
+    df = client.query(query).result().to_dataframe()
 
-    df = df[df["source"] == "training"]
     logger.info(f"Loaded {len(df)} training rows from feature store")
 
     df = df.drop(
