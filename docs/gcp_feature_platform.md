@@ -135,7 +135,7 @@ This is a data prep step that runs independently before the pipeline, similar to
 
 **Create `src/feature_store/sync.py`** — standalone script that triggers a manual `FeatureView.sync()` after ingestion so the online store has fresh data. Run after `ingest.py` — both are pre-pipeline prep steps.
 
-### Step 6: Modify Training Pipeline (offline features)
+### Step 6: Modify Training Pipeline (offline features) ✅
 
 Training uses the **offline store** — reads historical features from the BQ-backed feature table. This is the standard feature platform pattern: train on point-in-time correct features from the offline store.
 
