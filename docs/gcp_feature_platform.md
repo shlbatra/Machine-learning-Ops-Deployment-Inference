@@ -151,7 +151,7 @@ Training uses the **offline store** — reads historical features from the BQ-ba
 - Assumes `ingest.py` and `sync.py` have already been run before pipeline submission
 - Import and wire the new `load_data_from_feature_store` component
 
-### Step 7: Update Instance Model
+### Step 7: Update Instance Model ✅
 
 **Modify `src/ml_pipelines_kfp/iris_xgboost/models/instance.py`**:
 - Switch to canonical field names (`sepal_length_cm`, etc.) as primary, non-optional `float`
