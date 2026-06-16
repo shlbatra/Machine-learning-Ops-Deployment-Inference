@@ -28,7 +28,7 @@ def coalesce(*args):
     return next((a for a in args if a is not None), None)
 
 
-@kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
+@kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-training", pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: str):
 
     # Import components
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     # _constants.IMAGE_NAME needed: deploy.py/schema.py use it as base_image in @component decorator
     IMAGE_NAME = _constants.IMAGE_NAME = coalesce(cli.image_name, _constants.IMAGE_NAME)
     FASTAPI_IMAGE_NAME = coalesce(cli.fastapi_image_name, FASTAPI_IMAGE_NAME)
-    pipeline_name = coalesce(cli.pipeline_name, PIPELINE_NAME)
+    pipeline_name = coalesce(cli.pipeline_name, f"{PIPELINE_NAME}-training")
     pipeline_root = coalesce(cli.pipeline_root, PIPELINE_ROOT)
     bq_dataset = coalesce(cli.bq_dataset, BQ_DATASET)
     bq_table = coalesce(cli.bq_table, BQ_TABLE)

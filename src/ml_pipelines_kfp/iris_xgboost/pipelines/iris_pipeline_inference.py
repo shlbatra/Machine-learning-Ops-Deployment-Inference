@@ -19,7 +19,7 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
 )
 
 
-@kfp.dsl.pipeline(name=PIPELINE_NAME, pipeline_root=PIPELINE_ROOT)
+@kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-inference", pipeline_root=PIPELINE_ROOT)
 def pipeline(
     project_id: str,
     location: str,
@@ -76,10 +76,10 @@ if __name__ == "__main__":
     kfp.compiler.Compiler().compile(
         pipeline_func=pipeline,
         package_path="pipeline.yaml",
-        pipeline_name=PIPELINE_NAME,
+        pipeline_name=f"{PIPELINE_NAME}-inference",
     )
     job = aip.PipelineJob(
-        display_name=PIPELINE_NAME,
+        display_name=f"{PIPELINE_NAME}-inference",
         template_path="pipeline.yaml",
         pipeline_root=PIPELINE_ROOT,
         enable_caching=False,
