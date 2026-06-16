@@ -74,6 +74,7 @@ class MapToFeatureRow(beam.DoFn):
         }
 
         sample_id = element.get("sample_id") or uuid.uuid4().hex[:8]
+        logger.info(f"Processing entity_id: {sample_id}_streaming")
         row["species"] = None
         row["source"] = "streaming"
         row["entity_id"] = f"{sample_id}_streaming"
