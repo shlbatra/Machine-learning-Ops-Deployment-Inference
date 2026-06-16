@@ -1,13 +1,13 @@
 title: Instance
 type: object
 properties:
-  SepalLengthCm:
+  sepal_length_cm:
     type: number
-  SepalWidthCm:
-    type: integer
-  PetalLengthCm:
+  sepal_width_cm:
     type: number
-  PetalWidthCm:
+  petal_length_cm:
     type: number
-  Species:
+  petal_width_cm:
+    type: number
+  species:
     type: integer
