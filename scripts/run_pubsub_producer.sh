@@ -3,6 +3,8 @@
 # Generate random Iris data and publish to Pub/Sub for streaming inference testing
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 PROJECT_ID="deeplearning-sahil"
 TOPIC="iris-inference-data"
 BATCH_SIZE=${1:-10}
@@ -22,7 +24,7 @@ if [ -n "$DURATION" ]; then
   DURATION_ARG="--duration $DURATION"
 fi
 
-python scripts/pubsub_producer.py \
+python "$SCRIPT_DIR/pubsub_producer.py" \
   --project-id "$PROJECT_ID" \
   --topic "$TOPIC" \
   --batch-size "$BATCH_SIZE" \
