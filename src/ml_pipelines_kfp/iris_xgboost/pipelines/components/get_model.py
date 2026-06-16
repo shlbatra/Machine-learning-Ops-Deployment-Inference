@@ -30,16 +30,14 @@ def get_model(
         logger.error(f"Could not find model: {model_name}")
         return
 
-    versions = list(client.list_model_versions(name=parent_models[0].name))
-    versions.sort(key=lambda v: v.create_time, reverse=True)
-    latest = versions[0]
+    blessed = client.get_model(name=parent_models[0].name + "@blessed")
 
-    logger.info(f"Found model: {latest.name}, version: {latest.version_id}, artifact_uri: {latest.artifact_uri}")
+    logger.info(f"Found blessed model: {blessed.name}, version: {blessed.version_id}, artifact_uri: {blessed.artifact_uri}")
 
     latest_model_path = latest_model.path.replace("/gcs/", "gs://")
-    fs, _ = fsspec.core.url_to_fs(latest.artifact_uri)
+    fs, _ = fsspec.core.url_to_fs(blessed.artifact_uri)
     fs.copy(
-        latest.artifact_uri + "/",
+        blessed.artifact_uri + "/",
         latest_model_path,
         recursive=True,
     )
