@@ -28,6 +28,7 @@ def get_model(
         "filter": f"display_name={model_name}",
     }
     parent_models = list(client.list_models(request=request))
+    parent_models.sort(key=lambda m: m.create_time, reverse=True)
     parent_model = parent_models[0] if parent_models else None
 
     if not parent_model:
