@@ -11,12 +11,16 @@ import json
 import argparse
 import logging
 import uuid
+from datetime import datetime, timezone
 
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
 from apache_beam.transforms.window import FixedWindows
+from google.cloud.aiplatform_v1 import FeatureOnlineStoreAdminServiceClient
+from pydantic import ValidationError
 
+from dataflow.models.iris_schema import PubSubIrisMessage
 from ml_pipelines_kfp.log import get_logger
 
 logger = get_logger(__name__)
@@ -49,9 +53,6 @@ class ParsePubSubMessage(beam.DoFn):
     """Parse and validate JSON message from Pub/Sub using Pydantic schema."""
 
     def process(self, element):
-        from pydantic import ValidationError
-        from dataflow.models.iris_schema import PubSubIrisMessage
-
         try:
             message_data = json.loads(element.decode("utf-8"))
             validated = PubSubIrisMessage(**message_data)
@@ -67,8 +68,6 @@ class MapToFeatureRow(beam.DoFn):
     """Rename validated Pub/Sub fields to canonical names and add Feature Store metadata."""
 
     def process(self, element):
-        from datetime import datetime, timezone
-
         row = {
             canonical: element[pubsub_key]
             for pubsub_key, canonical in PUBSUB_TO_CANONICAL.items()
@@ -93,8 +92,6 @@ class TriggerFeatureSync(beam.DoFn):
         self.feature_view_id = feature_view_id
 
     def setup(self):
-        from google.cloud.aiplatform_v1 import FeatureOnlineStoreAdminServiceClient
-
         self._client = FeatureOnlineStoreAdminServiceClient(
             client_options={"api_endpoint": f"{self.region}-aiplatform.googleapis.com"}
         )
@@ -161,8 +158,6 @@ def run_pipeline(argv=None):
     logger.info(f"Pipeline args: {pipeline_args}")
 
     pipeline_options = PipelineOptions(pipeline_args)
-
-    from apache_beam.options.pipeline_options import GoogleCloudOptions
 
     google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
     google_cloud_options.project = known_args.project_id
