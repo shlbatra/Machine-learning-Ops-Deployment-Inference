@@ -13,7 +13,7 @@ PUBSUB_TOPIC="projects/$PROJECT_ID/topics/iris-inference-data"
 TEMP_LOCATION="gs://sb-vertex/temp"
 STAGING_LOCATION="gs://sb-vertex/staging"
 SERVICE_ACCOUNT="kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
-SYNC_INTERVAL_SECS=300
+ONLINE_BATCH_SIZE=100
 
 if [ "$ENV" = "prod" ]; then
   JOB_PREFIX="iris-streaming-features"
@@ -33,7 +33,7 @@ python src/dataflow/iris_feature_pipeline.py \
     --output_table $OUTPUT_TABLE \
     --project_id $PROJECT_ID \
     --region $REGION \
-    --sync_interval_secs $SYNC_INTERVAL_SECS \
+    --online_batch_size $ONLINE_BATCH_SIZE \
     --runner DataflowRunner \
     --job_name $JOB_NAME \
     --temp_location $TEMP_LOCATION \

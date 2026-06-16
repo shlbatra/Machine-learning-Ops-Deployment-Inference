@@ -1,8 +1,8 @@
 """
 Dataflow streaming pipeline for ingesting Pub/Sub messages into the Feature Store.
-Reads from Pub/Sub, renames fields to canonical names, and writes to the
-iris_features BQ table with WRITE_APPEND. Periodically triggers a FeatureView
-sync so the online store stays fresh.
+Reads from Pub/Sub, renames fields to canonical names, and dual-writes to:
+  - BQ iris_features table (offline store, for training/batch)
+  - Bigtable online store (real-time serving, sub-second latency)
 
 No model calls — this pipeline only persists features.
 """
@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 import apache_beam as beam
 from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
-from apache_beam.transforms.window import FixedWindows
+from apache_beam.transforms.util import BatchElements
 from pydantic import ValidationError
 
 from dataflow.models.iris_schema import PubSubIrisMessage
-from dataflow.utils.feature_sync import TriggerFeatureSync
+from dataflow.utils.online_store_writer import WriteToOnlineStore
 from ml_pipelines_kfp.log import get_logger
 
 logger = get_logger(__name__)
@@ -99,10 +99,10 @@ def run_pipeline(argv=None):
     parser.add_argument("--project_id", required=True, help="GCP project ID")
     parser.add_argument("--region", required=True, help="GCP Region")
     parser.add_argument(
-        "--sync_interval_secs",
+        "--online_batch_size",
         type=int,
-        default=300,
-        help="How often to trigger FeatureView sync (seconds, default: 300)",
+        default=100,
+        help="Max rows per online store write batch (default: 100)",
     )
     parser.add_argument(
         "--online_store_id",
@@ -139,7 +139,7 @@ def run_pipeline(argv=None):
         | "Map to Feature Row" >> beam.ParDo(MapToFeatureRow())
     )
 
-    feature_rows | "Write to Feature Table" >> WriteToBigQuery(
+    feature_rows | "Write to BQ (Offline Store)" >> WriteToBigQuery(
         table=known_args.output_table,
         schema=FEATURE_TABLE_SCHEMA,
         write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
@@ -148,17 +148,19 @@ def run_pipeline(argv=None):
 
     (
         feature_rows
-        | "Window for Sync" >> beam.WindowInto(
-            FixedWindows(known_args.sync_interval_secs)
+        | "Batch for Online Store"
+        >> BatchElements(
+            min_batch_size=1,
+            max_batch_size=known_args.online_batch_size,
         )
-        | "Count per Window" >> beam.combiners.Count.Globally().without_defaults()
-        | "Trigger FeatureView Sync"
+        | "Write to Online Store (Bigtable)"
         >> beam.ParDo(
-            TriggerFeatureSync(
+            WriteToOnlineStore(
                 project_id=known_args.project_id,
                 region=known_args.region,
                 online_store_id=known_args.online_store_id,
                 feature_view_id=known_args.feature_view_id,
+                feature_columns=list(PUBSUB_TO_CANONICAL.values()),
             )
         )
     )
