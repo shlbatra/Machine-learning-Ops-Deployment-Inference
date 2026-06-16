@@ -21,24 +21,25 @@ def get_model(
         client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
     )
 
-    request = {
+    parent_models = list(client.list_models(request={
         "parent": f"projects/{project_id}/locations/{location}",
         "filter": f"display_name={model_name}",
-    }
-    parent_models = list(client.list_models(request=request))
-    parent_models.sort(key=lambda m: m.create_time, reverse=True)
-    parent_model = parent_models[0] if parent_models else None
+    }))
 
-    if not parent_model:
+    if not parent_models:
         logger.error(f"Could not find model: {model_name}")
         return
 
-    logger.info(f"Found model: {parent_model.name}, artifact_uri: {parent_model.artifact_uri}")
+    versions = list(client.list_model_versions(name=parent_models[0].name))
+    versions.sort(key=lambda v: v.create_time, reverse=True)
+    latest = versions[0]
+
+    logger.info(f"Found model: {latest.name}, version: {latest.version_id}, artifact_uri: {latest.artifact_uri}")
 
     latest_model_path = latest_model.path.replace("/gcs/", "gs://")
-    fs, _ = fsspec.core.url_to_fs(parent_model.artifact_uri)
+    fs, _ = fsspec.core.url_to_fs(latest.artifact_uri)
     fs.copy(
-        parent_model.artifact_uri + "/",
+        latest.artifact_uri + "/",
         latest_model_path,
         recursive=True,
     )
