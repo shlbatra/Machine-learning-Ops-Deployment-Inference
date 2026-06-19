@@ -10,6 +10,7 @@ from google.cloud.aiplatform_v1beta1.types import (
 
 logger = logging.getLogger(__name__)
 
+# Aliases for deeply nested proto types to keep _build_entry readable
 DataKeyAndFeatureValues = FeatureViewDirectWriteRequest.DataKeyAndFeatureValues
 Feature = DataKeyAndFeatureValues.Feature
 FeatureValueAndTimestamp = Feature.FeatureValueAndTimestamp
