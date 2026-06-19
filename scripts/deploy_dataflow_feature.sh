@@ -14,6 +14,7 @@ TEMP_LOCATION="gs://sb-vertex/temp"
 STAGING_LOCATION="gs://sb-vertex/staging"
 SERVICE_ACCOUNT="kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
 ONLINE_BATCH_SIZE=100
+SDK_IMAGE="us-docker.pkg.dev/$PROJECT_ID/sahil-experiment-docker-images/dataflow-beam:latest"
 
 if [ "$ENV" = "prod" ]; then
   JOB_PREFIX="iris-streaming-features"
@@ -27,6 +28,7 @@ JOB_NAME="$JOB_PREFIX-$(date +%Y%m%d-%H%M%S)"
 
 echo "Deploying Dataflow feature pipeline ($ENV)..."
 echo "Output table: $OUTPUT_TABLE"
+echo "SDK container image: $SDK_IMAGE"
 
 python src/dataflow/iris_feature_pipeline.py \
     --input_topic $PUBSUB_TOPIC \
@@ -39,6 +41,8 @@ python src/dataflow/iris_feature_pipeline.py \
     --temp_location $TEMP_LOCATION \
     --staging_location $STAGING_LOCATION \
     --service_account_email $SERVICE_ACCOUNT \
+    --sdk_container_image $SDK_IMAGE \
+    --sdk_location container \
     --use_public_ips \
     --max_num_workers 3 \
     --autoscaling_algorithm THROUGHPUT_BASED \

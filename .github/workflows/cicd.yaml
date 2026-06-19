@@ -20,6 +20,7 @@ jobs:
       REPOSITORY: sahil-experiment-docker-images
       IMAGE_NAME: ml-pipelines-kfp-image
       FASTAPI_IMAGE_NAME: fastapi-ml-generic
+      BEAM_IMAGE_NAME: dataflow-beam
 
     steps:
       - name: Checkout code
@@ -66,3 +67,15 @@ jobs:
         run: |
           docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.FASTAPI_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.FASTAPI_IMAGE_NAME }}:latest
+
+      - name: Build Beam SDK image for Dataflow
+        run: |
+          docker build \
+            --tag ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            --tag ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:latest \
+            --file Dockerfile.beam .
+
+      - name: Push Beam SDK image
+        run: |
+          docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:latest

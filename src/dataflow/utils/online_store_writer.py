@@ -1,21 +1,26 @@
 import logging
 
 import apache_beam as beam
-from google.cloud.aiplatform_v1 import FeatureOnlineStoreServiceClient
-from google.cloud.aiplatform_v1.types import (
-    WriteFeatureValuesRequest,
-    WriteFeatureValuesPayload,
+from google.cloud.aiplatform_v1beta1 import FeatureOnlineStoreServiceClient
+from google.cloud.aiplatform_v1beta1.types import (
+    FeatureViewDirectWriteRequest,
+    FeatureViewDataKey,
     FeatureValue,
 )
 
 logger = logging.getLogger(__name__)
 
+# Aliases for deeply nested proto types to keep _build_entry readable
+DataKeyAndFeatureValues = FeatureViewDirectWriteRequest.DataKeyAndFeatureValues
+Feature = DataKeyAndFeatureValues.Feature
+FeatureValueAndTimestamp = Feature.FeatureValueAndTimestamp
+
 
 class WriteToOnlineStore(beam.DoFn):
     """Write a batch of feature rows directly to the Feature Store online store (Bigtable).
 
+    Uses the v1beta1 feature_view_direct_write streaming RPC.
     Expects each batch element to be a dict with 'entity_id' and feature columns.
-    Float features use double_value, string features use string_value.
     """
 
     def __init__(self, project_id, region, online_store_id, feature_view_id, feature_columns):
@@ -35,35 +40,41 @@ class WriteToOnlineStore(beam.DoFn):
             f"/featureViews/{self.feature_view_id}"
         )
 
-    def process(self, batch):
-        payloads = []
-        for row in batch:
-            feature_values = {}
-            for col in self.feature_columns:
-                val = row.get(col)
-                if val is None:
-                    continue
-                if isinstance(val, (int, float)):
-                    feature_values[col] = FeatureValue(double_value=float(val))
-                else:
-                    feature_values[col] = FeatureValue(string_value=str(val))
-
-            payloads.append(
-                WriteFeatureValuesPayload(
-                    entity_id=row["entity_id"],
-                    feature_values=feature_values,
+    def _build_entry(self, row):
+        features = []
+        for col in self.feature_columns:
+            val = row.get(col)
+            if val is None:
+                continue
+            if isinstance(val, (int, float)):
+                fv = FeatureValue(double_value=float(val))
+            else:
+                fv = FeatureValue(string_value=str(val))
+            features.append(
+                Feature(
+                    name=col,
+                    value_and_timestamp=FeatureValueAndTimestamp(value=fv),
                 )
             )
+        return DataKeyAndFeatureValues(
+            data_key=FeatureViewDataKey(key=row["entity_id"]),
+            features=features,
+        )
+
+    def process(self, batch):
+        entries = [self._build_entry(row) for row in batch]
+        request = FeatureViewDirectWriteRequest(
+            feature_view=self._feature_view_name,
+            data_key_and_feature_values=entries,
+        )
 
         try:
-            self._client.write_feature_values(
-                request=WriteFeatureValuesRequest(
-                    feature_view=self._feature_view_name,
-                    payloads=payloads,
-                )
-            )
-            logger.info(f"Wrote {len(payloads)} rows to online store")
+            responses = self._client.feature_view_direct_write(requests=iter([request]))
+            # Drain the response stream to ensure the server has processed the write
+            for resp in responses:
+                logger.info(f"Direct write response: {resp}")
+            logger.info(f"Wrote {len(entries)} rows to online store")
         except Exception as e:
-            logger.error(f"Online store write failed ({len(payloads)} rows): {e}")
+            logger.error(f"Online store write failed ({len(entries)} rows): {e}")
 
         yield from batch

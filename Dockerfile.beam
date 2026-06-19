@@ -1,0 +1,7 @@
+ARG BEAM_VERSION=2.50.0
+FROM apache/beam_python3.10_sdk:${BEAM_VERSION}
+
+COPY pyproject.toml .
+COPY src/ src/
+
+RUN pip install --no-cache-dir .
