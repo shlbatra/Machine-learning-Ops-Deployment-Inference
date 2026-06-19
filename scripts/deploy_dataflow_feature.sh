@@ -25,8 +25,17 @@ fi
 
 JOB_NAME="$JOB_PREFIX-$(date +%Y%m%d-%H%M%S)"
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "Deploying Dataflow feature pipeline ($ENV)..."
 echo "Output table: $OUTPUT_TABLE"
+
+echo "Building package wheel..."
+pip install build --quiet
+python -m build --wheel "$PROJECT_ROOT" --outdir "$PROJECT_ROOT/dist"
+WHEEL=$(ls "$PROJECT_ROOT"/dist/*.whl | head -1)
+echo "Staging package: $WHEEL"
 
 python src/dataflow/iris_feature_pipeline.py \
     --input_topic $PUBSUB_TOPIC \
@@ -39,6 +48,7 @@ python src/dataflow/iris_feature_pipeline.py \
     --temp_location $TEMP_LOCATION \
     --staging_location $STAGING_LOCATION \
     --service_account_email $SERVICE_ACCOUNT \
+    --extra_package $WHEEL \
     --use_public_ips \
     --max_num_workers 3 \
     --autoscaling_algorithm THROUGHPUT_BASED \
