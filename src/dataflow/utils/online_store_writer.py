@@ -69,8 +69,9 @@ class WriteToOnlineStore(beam.DoFn):
 
         try:
             responses = self._client.feature_view_direct_write(requests=iter([request]))
+            # Drain the response stream to ensure the server has processed the write
             for resp in responses:
-                pass
+                logger.info(f"Direct write response: {resp}")
             logger.info(f"Wrote {len(entries)} rows to online store")
         except Exception as e:
             logger.error(f"Online store write failed ({len(entries)} rows): {e}")
