@@ -49,6 +49,8 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
         yield from results
 
     async def _fetch_batch(self, batch):
+        # Limits concurrent API calls to max_concurrent — without this,
+        # a large batch would fire all requests at once and overwhelm the online store.
         semaphore = asyncio.Semaphore(self.max_concurrent)
         tasks = [self._fetch_one(elem, semaphore) for elem in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
