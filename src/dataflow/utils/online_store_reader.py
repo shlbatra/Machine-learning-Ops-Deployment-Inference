@@ -35,6 +35,9 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
 
     def setup(self):
         self._loop = asyncio.new_event_loop()
+        # Beam worker threads have no event loop — set ours before creating
+        # the async client, which needs one to initialize the gRPC channel.
+        asyncio.set_event_loop(self._loop)
         self._client = FeatureOnlineStoreServiceAsyncClient(
             client_options={"api_endpoint": f"{self.region}-aiplatform.googleapis.com"}
         )
