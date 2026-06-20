@@ -1,21 +1,26 @@
 """
-Dataflow streaming pipeline for real-time Iris inference.
-Reads from Pub/Sub, calls FastAPI ML service deployed via Kubeflow, writes predictions to BigQuery.
+Dataflow streaming pipeline for real-time Iris inference via Feature Store.
+Reads entity IDs from Pub/Sub, fetches features from the online store,
+calls FastAPI ML service for predictions, writes results to BigQuery.
+
+Decoupled from the feature ingestion pipeline (iris_feature_pipeline.py) —
+this pipeline only reads from the online store and runs inference. Features
+can be written by the streaming feature pipeline or batch ingest.py + sync.py.
 """
 
 import json
 import argparse
 import asyncio
 import logging
-from typing import Any, Dict, List
+from datetime import datetime, timezone
 import time
 
 import aiohttp
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
-
+from dataflow.utils.online_store_reader import FetchFeaturesFromOnlineStore
 from ml_pipelines_kfp.log import get_logger
 
 logger = get_logger(__name__)
@@ -25,15 +30,23 @@ REGION = "us-central1"
 MODEL_NAME = "Iris-Classifier-XGBoost"
 FASTAPI_SERVICE_NAME = "iris-classifier-xgboost-service"
 
+FEATURE_COLUMNS = [
+    "sepal_length_cm",
+    "sepal_width_cm",
+    "petal_length_cm",
+    "petal_width_cm",
+]
+
 PREDICTION_SCHEMA = {
     "fields": [
-        {"name": "sepal_length", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "sepal_width", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "petal_length", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "petal_width", "type": "FLOAT", "mode": "REQUIRED"},
+        {"name": "entity_id", "type": "STRING", "mode": "REQUIRED"},
+        {"name": "sepal_length_cm", "type": "FLOAT", "mode": "REQUIRED"},
+        {"name": "sepal_width_cm", "type": "FLOAT", "mode": "REQUIRED"},
+        {"name": "petal_length_cm", "type": "FLOAT", "mode": "REQUIRED"},
+        {"name": "petal_width_cm", "type": "FLOAT", "mode": "REQUIRED"},
         {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
-        {"name": "sample_id", "type": "INTEGER", "mode": "REQUIRED"},
         {"name": "prediction", "type": "STRING", "mode": "REQUIRED"},
+        {"name": "class_probabilities", "type": "FLOAT", "mode": "REPEATED"},
         {"name": "prediction_timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "model_service", "type": "STRING", "mode": "REQUIRED"},
         {"name": "processing_time", "type": "FLOAT", "mode": "NULLABLE"},
@@ -43,22 +56,31 @@ PREDICTION_SCHEMA = {
 
 
 class ParsePubSubMessage(beam.DoFn):
-    """Parse JSON message from Pub/Sub."""
+    """Parse JSON message from Pub/Sub — only entity_id is required.
+
+    Accepts messages with either 'entity_id' directly or 'sample_id'
+    (converted to '{sample_id}_streaming' for backward compat with
+    the feature ingestion pipeline's entity_id format).
+    """
 
     def process(self, element):
         try:
             message_data = json.loads(element.decode("utf-8"))
 
-            required_fields = [
-                "sepal_length",
-                "sepal_width",
-                "petal_length",
-                "petal_width",
-            ]
-            if all(field in message_data for field in required_fields):
-                yield message_data
-            else:
-                logger.warning(f"Missing required fields in message: {message_data}")
+            entity_id = message_data.get("entity_id")
+            if not entity_id:
+                sample_id = message_data.get("sample_id")
+                if sample_id is not None:
+                    entity_id = f"{sample_id}_streaming"
+                    logger.info(f"Entity Id scored = {entity_id}")
+                else:
+                    logger.warning(f"Message missing entity_id and sample_id: {message_data}")
+                    return
+
+            yield {
+                "entity_id": entity_id,
+                "timestamp": message_data.get("timestamp"),
+            }
 
         except (json.JSONDecodeError, AttributeError) as e:
             logger.error(f"Error parsing message: {e}, message: {element}")
@@ -89,17 +111,10 @@ class BatchCallFastAPIService(beam.DoFn):
         yield from results
 
     async def _call_async(self, batch):
-        from datetime import datetime
-
         start_time = time.time()
 
         instances = [
-            {
-                "SepalLengthCm": e["sepal_length"],
-                "SepalWidthCm": e["sepal_width"],
-                "PetalLengthCm": e["petal_length"],
-                "PetalWidthCm": e["petal_width"],
-            }
+            {col: e[col] for col in FEATURE_COLUMNS}
             for e in batch
         ]
 
@@ -117,19 +132,19 @@ class BatchCallFastAPIService(beam.DoFn):
 
             results = []
             for element, pred in zip(batch, predictions):
-                predicted_class = str(pred.get("prediction", "unknown"))
-                results.append({
-                    "sepal_length": element["sepal_length"],
-                    "sepal_width": element["sepal_width"],
-                    "petal_length": element["petal_length"],
-                    "petal_width": element["petal_width"],
-                    "timestamp": element.get("timestamp", datetime.utcnow().isoformat()),
-                    "sample_id": element.get("sample_id", 0),
+                predicted_class = str(pred.get("class_", "unknown"))
+                row = {col: element[col] for col in FEATURE_COLUMNS}
+                row.update({
+                    "entity_id": element["entity_id"],
+                    "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
                     "prediction": predicted_class,
-                    "prediction_timestamp": datetime.utcnow().isoformat(),
+                    "class_probabilities": pred.get("class_probabilities", []),
+                    "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                     "model_service": self.service_url,
                     "processing_time": processing_time / len(batch),
                 })
+                logger.info(f"Row processed - {row}")
+                results.append(row)
             return results
 
         except Exception as e:
@@ -137,14 +152,15 @@ class BatchCallFastAPIService(beam.DoFn):
             processing_time = time.time() - start_time
             return [
                 {
-                    "sepal_length": el.get("sepal_length", 0.0),
-                    "sepal_width": el.get("sepal_width", 0.0),
-                    "petal_length": el.get("petal_length", 0.0),
-                    "petal_width": el.get("petal_width", 0.0),
-                    "timestamp": el.get("timestamp", datetime.utcnow().isoformat()),
-                    "sample_id": el.get("sample_id", 0),
+                    "entity_id": el["entity_id"],
+                    "sepal_length_cm": el.get("sepal_length_cm", 0.0),
+                    "sepal_width_cm": el.get("sepal_width_cm", 0.0),
+                    "petal_length_cm": el.get("petal_length_cm", 0.0),
+                    "petal_width_cm": el.get("petal_width_cm", 0.0),
+                    "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
                     "prediction": "ERROR",
-                    "prediction_timestamp": datetime.utcnow().isoformat(),
+                    "class_probabilities": [],
+                    "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                     "model_service": f"ERROR: {str(e)}",
                     "processing_time": processing_time,
                 }
@@ -156,10 +172,7 @@ class AddProcessingMetadata(beam.DoFn):
     """Add processing metadata to records."""
 
     def process(self, element):
-        from datetime import datetime
-
-        element["dataflow_processing_time"] = datetime.utcnow().isoformat()
-
+        element["dataflow_processing_time"] = datetime.now(timezone.utc).isoformat()
         yield element
 
 
@@ -189,6 +202,16 @@ def run_pipeline(argv=None):
         help="Max seconds to buffer a partial batch before flushing",
     )
     parser.add_argument(
+        "--online_store_id",
+        default="ml_online_store",
+        help="Feature Online Store ID (default: ml_online_store)",
+    )
+    parser.add_argument(
+        "--feature_view_id",
+        default="iris_features",
+        help="Feature View ID (default: iris_features)",
+    )
+    parser.add_argument(
         "--no_wait", action="store_true",
         help="Submit the job and exit without waiting for it to finish",
     )
@@ -198,8 +221,6 @@ def run_pipeline(argv=None):
     logger.info(f"Pipeline args: {pipeline_args}")
 
     pipeline_options = PipelineOptions(pipeline_args)
-
-    from apache_beam.options.pipeline_options import GoogleCloudOptions
 
     google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
     google_cloud_options.project = known_args.project_id
@@ -212,6 +233,20 @@ def run_pipeline(argv=None):
         | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
         | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
         | "Batch Elements" >> BatchElements(
+            min_batch_size=1,
+            max_batch_size=known_args.batch_size,
+            max_batch_duration_secs=known_args.max_batch_duration_secs,
+        )
+        | "Fetch Features" >> beam.ParDo(
+            FetchFeaturesFromOnlineStore(
+                project_id=known_args.project_id,
+                region=known_args.region,
+                online_store_id=known_args.online_store_id,
+                feature_view_id=known_args.feature_view_id,
+                feature_columns=FEATURE_COLUMNS,
+            )
+        )
+        | "Batch for Prediction" >> BatchElements(
             min_batch_size=1,
             max_batch_size=known_args.batch_size,
             max_batch_duration_secs=known_args.max_batch_duration_secs,

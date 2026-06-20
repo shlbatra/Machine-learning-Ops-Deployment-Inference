@@ -2,7 +2,7 @@
 
 ## Context
 
-The Dataflow streaming pipeline (`iris_streaming_pipeline.py`) is currently deployed via a manual script (`scripts/deploy_dataflow_streaming.sh`). This requires someone to run the script locally with GCP credentials.
+The Dataflow streaming pipeline (`iris_inference_pipeline.py`) is currently deployed via a manual script (`scripts/deploy_dataflow_streaming.sh`). This requires someone to run the script locally with GCP credentials.
 
 The project now supports **two environments** (staging and prod) controlled by the `ENVIRONMENT` env var, with environment-specific Cloud Run services, BigQuery tables, Dataflow job names, and GCS paths. The deploy script accepts an environment argument (`./scripts/deploy_dataflow_streaming.sh staging|prod`).
 
@@ -107,7 +107,7 @@ jobs:
           JOB_NAME="${{ env.JOB_PREFIX }}-$(date +%Y%m%d-%H%M%S)"
           echo "Submitting ${{ inputs.environment }} job: $JOB_NAME"
 
-          python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
+          python src/ml_pipelines_kfp/dataflow/iris_inference_pipeline.py \
             --input_topic ${{ env.PUBSUB_TOPIC }} \
             --output_table ${{ env.OUTPUT_TABLE }} \
             --project_id ${{ env.PROJECT_ID }} \
@@ -208,7 +208,7 @@ Most of these are likely already granted since the same service account runs the
 |---|---|
 | `.github/workflows/deploy-dataflow.yaml` | **New** — the workflow above |
 
-No changes needed to `iris_streaming_pipeline.py` or any other existing code. The workflow calls the pipeline script the same way the manual deploy script does.
+No changes needed to `iris_inference_pipeline.py` or any other existing code. The workflow calls the pipeline script the same way the manual deploy script does.
 
 ## Verification
 

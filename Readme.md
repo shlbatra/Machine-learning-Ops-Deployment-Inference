@@ -39,7 +39,7 @@ src/ml_pipelines_kfp/
 │   ├── bq_dataloader.py    # BigQuery data loading utility
 │   └── constants.py        # Iris-specific constants (model name, BQ tables, env branching)
 ├── dataflow/               # Dataflow streaming pipelines
-│   └── iris_streaming_pipeline.py
+│   └── iris_inference_pipeline.py
 └── notebooks/              # Example notebooks and experiments
 schemas/                    # Input/output schemas for Vertex AI
 Dockerfile                  # Container definition

@@ -14,6 +14,13 @@ TEMP_LOCATION="gs://sb-vertex/temp"
 STAGING_LOCATION="gs://sb-vertex/staging"
 SERVICE_ACCOUNT="kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
 
+# Beam SDK container image (built from Dockerfile.beam)
+LOCATION="us"
+REPOSITORY="sahil-experiment-docker-images"
+BEAM_IMAGE_NAME="dataflow-beam"
+IMAGE_TAG=$(git rev-parse --short HEAD)
+SDK_IMAGE="${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${BEAM_IMAGE_NAME}:${IMAGE_TAG}"
+
 if [ "$ENV" = "prod" ]; then
   SERVICE_URL="https://iris-classifier-xgboost-service-zoxyfmo73q-uc.a.run.app"
   JOB_PREFIX="iris-streaming-inference"
@@ -28,10 +35,11 @@ JOB_NAME="$JOB_PREFIX-$(date +%Y%m%d-%H%M%S)"
 
 echo "Deploying Dataflow streaming job ($ENV) for real-time inference using FastAPI service..."
 echo "Service URL: $SERVICE_URL"
+echo "SDK container image: $SDK_IMAGE"
 
 # Run the Dataflow job
 echo "Starting Dataflow streaming job: $JOB_NAME"
-python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
+python src/dataflow/iris_inference_pipeline.py \
     --input_topic $PUBSUB_TOPIC \
     --output_table $OUTPUT_TABLE \
     --project_id $PROJECT_ID \
@@ -42,6 +50,8 @@ python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
     --temp_location $TEMP_LOCATION \
     --staging_location $STAGING_LOCATION \
     --service_account_email $SERVICE_ACCOUNT \
+    --sdk_container_image $SDK_IMAGE \
+    --sdk_location container \
     --use_public_ips \
     --max_num_workers 3 \
     --autoscaling_algorithm THROUGHPUT_BASED \
