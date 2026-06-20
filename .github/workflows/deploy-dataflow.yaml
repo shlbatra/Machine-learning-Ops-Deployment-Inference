@@ -35,6 +35,9 @@ env:
   TEMP_LOCATION: "gs://sb-vertex/temp"
   STAGING_LOCATION: "gs://sb-vertex/staging"
   SERVICE_ACCOUNT_EMAIL: "kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com"
+  LOCATION: "us"
+  REPOSITORY: "sahil-experiment-docker-images"
+  BEAM_IMAGE_NAME: "dataflow-beam"
 
 jobs:
   deploy:
@@ -87,7 +90,10 @@ jobs:
       - name: Deploy Dataflow streaming job
         run: |
           JOB_NAME="${{ env.JOB_PREFIX }}-$(date +%Y%m%d-%H%M%S)"
+          IMAGE_TAG=$(echo '${{ github.ref_name }}' | sed 's/[^a-zA-Z0-9._-]/-/g')
+          SDK_IMAGE="${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:${IMAGE_TAG}"
           echo "Submitting ${{ inputs.environment }} job: $JOB_NAME"
+          echo "SDK container image: $SDK_IMAGE"
 
           python src/dataflow/iris_inference_pipeline.py \
             --input_topic ${{ env.PUBSUB_TOPIC }} \
@@ -102,6 +108,8 @@ jobs:
             --temp_location ${{ env.TEMP_LOCATION }} \
             --staging_location ${{ env.STAGING_LOCATION }} \
             --service_account_email ${{ env.SERVICE_ACCOUNT_EMAIL }} \
+            --sdk_container_image $SDK_IMAGE \
+            --sdk_location container \
             --use_public_ips \
             --worker_machine_type ${{ inputs.worker_machine_type }} \
             --max_num_workers 3 \
