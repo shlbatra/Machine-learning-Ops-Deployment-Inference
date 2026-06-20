@@ -40,6 +40,7 @@ FEATURE_COLUMNS = [
 PREDICTION_SCHEMA = {
     "fields": [
         {"name": "entity_id", "type": "STRING", "mode": "REQUIRED"},
+        {"name": "features", "type": "STRING", "mode": "NULLABLE"},
         {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "prediction", "type": "STRING", "mode": "REQUIRED"},
         {"name": "class_probabilities", "type": "FLOAT", "mode": "REPEATED"},
@@ -137,8 +138,10 @@ class BatchCallFastAPIService(beam.DoFn):
                 results = []
                 for element, pred in zip(batch, predictions):
                     predicted_class = str(pred.get("class_", "unknown"))
+                    features = {col: element[col] for col in FEATURE_COLUMNS}
                     row = {
                         "entity_id": element["entity_id"],
+                        "features": json.dumps(features),
                         "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
                         "prediction": predicted_class,
                         "class_probabilities": pred.get("class_probabilities", []),
@@ -167,6 +170,7 @@ class BatchCallFastAPIService(beam.DoFn):
         return [
             {
                 "entity_id": el["entity_id"],
+                "features": None,
                 "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
                 "prediction": "ERROR",
                 "class_probabilities": [],
