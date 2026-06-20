@@ -27,25 +27,34 @@ This repository implements a complete ML pipeline for the Iris dataset classific
 ## Project Structure
 
 ```
-src/ml_pipelines_kfp/
-├── constants.py            # Shared GCP settings (project, region, bucket, env)
-├── log.py                  # Shared JSON logging helper
-├── iris_xgboost/           # Main Iris classification implementation
-│   ├── pipelines/          # KFP pipeline definitions
-│   │   ├── components/     # Reusable pipeline components
-│   │   ├── iris_pipeline_training.py
-│   │   └── iris_pipeline_inference.py
-│   ├── models/             # Pydantic models for API
-│   ├── bq_dataloader.py    # BigQuery data loading utility
-│   └── constants.py        # Iris-specific constants (model name, BQ tables, env branching)
-├── dataflow/               # Dataflow streaming pipelines
-│   └── iris_inference_pipeline.py
-└── notebooks/              # Example notebooks and experiments
-schemas/                    # Input/output schemas for Vertex AI
-Dockerfile                  # Container definition
-pyproject.toml              # Project dependencies
-pipeline.yaml               # Pipeline configuration
-deploy_dataflow_streaming.sh # Dataflow streaming deployment script
+src/
+├── ml_pipelines_kfp/           # ML pipeline components and serving
+│   ├── constants.py            # Shared GCP settings (project, region, bucket, env)
+│   ├── log.py                  # Shared JSON logging helper
+│   └── iris_xgboost/           # Iris classification implementation
+│       ├── pipelines/          # KFP pipeline definitions
+│       │   ├── components/     # Reusable pipeline components
+│       │   ├── iris_pipeline_training.py
+│       │   └── iris_pipeline_inference.py
+│       ├── models/             # Pydantic models for API (Instance, Prediction)
+│       ├── bq_dataloader.py    # BigQuery data loading utility
+│       └── constants.py        # Iris-specific constants (model name, BQ tables)
+├── dataflow/                   # Dataflow streaming pipelines
+│   ├── iris_feature_pipeline.py    # Pub/Sub → Feature Store (dual-write BQ + Bigtable)
+│   ├── iris_inference_pipeline.py  # Pub/Sub → online store lookup → FastAPI → BQ
+│   ├── models/                 # Pydantic schemas for Pub/Sub messages
+│   └── utils/                  # Reusable DoFns (online_store_reader, online_store_writer)
+├── feature_store/              # Feature Store definitions and scripts
+│   ├── schema.py               # Shared FeatureConfig dataclass
+│   ├── ingest.py               # Raw BQ → canonical feature table
+│   ├── setup.py                # One-time online store + feature view creation
+│   ├── sync.py                 # Trigger FeatureView sync (offline → online)
+│   └── iris/                   # Iris-specific feature definitions
+│       └── feature_definitions.py
+schemas/                        # Input/output schemas for Vertex AI
+Dockerfile                      # FastAPI serving container
+Dockerfile.beam                 # Beam SDK container for Dataflow workers
+pyproject.toml                  # Project dependencies
 ```
 
 ## Prerequisites
@@ -325,6 +334,38 @@ Real-time inference is handled through:
 Streaming supports **micro-batching** via Beam's `BatchElements` with `max_batch_duration_secs`. Up to 50 messages are grouped into a single `/predict` call, reducing HTTP overhead by ~10-50x. At low traffic, partial batches flush after 1 second so no message waits indefinitely. Both `--batch_size` and `--max_batch_duration_secs` are tunable via CLI args.
 
 For high-volume workloads, the pipeline also uses **async HTTP** (`aiohttp`) to overlap multiple batch calls concurrently within a single worker, providing an additional ~2-4x throughput improvement on top of batching.
+
+### Feature Store Architecture
+
+The project uses **Vertex AI Feature Store V2** (BigQuery-backed) to provide a single source of truth for feature schemas and consistent feature serving across all paths:
+
+```
+                    Raw BQ Tables
+                         |
+                    [ingest.py]
+                         |
+              iris_features (canonical BQ table)
+                    /              \
+           Offline Store         [sync.py]
+          (BQ — bulk reads)         |
+           /          \        Online Store
+     Training    Batch Inference  (Bigtable — key lookups)
+     (point-in-time)  (latest)        |
+                                 Real-time Inference
+                                 (ms latency)
+```
+
+| Path | Store | Query Pattern | Latency |
+|------|-------|--------------|---------|
+| Training | Offline (BQ) | Point-in-time join on `feature_timestamp` | Seconds |
+| Batch inference | Offline (BQ) | Latest per entity | Seconds |
+| Real-time inference | Online (Bigtable) | Key lookup by `entity_id` | Milliseconds |
+
+**Two streaming pipelines** run independently:
+- **Feature pipeline** (`iris_feature_pipeline.py`): Pub/Sub → dual-write to BQ (offline) + Bigtable (online)
+- **Inference pipeline** (`iris_inference_pipeline.py`): Pub/Sub → online store lookup → FastAPI → BQ predictions
+
+Feature definitions live in `src/feature_store/` with a shared `FeatureConfig` contract. Each ML project gets its own sub-package (e.g. `iris/feature_definitions.py`) with canonical column names, source-to-canonical mappings, and resource IDs.
 
 ### Key Benefits
 

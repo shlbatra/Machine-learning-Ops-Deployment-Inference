@@ -222,7 +222,7 @@ This pipeline reads features from the online store and runs inference — fully 
 - Features are reusable: other models, analytics, or monitoring can read from the same feature store
 - Each pipeline can be restarted, updated, or rolled back without affecting the other
 
-### Step 11: Dependency + Docs
+### Step 11: Dependency + Docs ✅
 
 **Modify `pyproject.toml`**: bump `google-cloud-aiplatform>=1.64.0`
 
