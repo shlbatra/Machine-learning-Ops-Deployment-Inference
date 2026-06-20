@@ -55,7 +55,7 @@ src/
 │   ├── models/                     # Pydantic schemas for Pub/Sub messages
 │   │   └── iris_schema.py
 │   └── utils/                      # Reusable Beam DoFns
-│       ├── online_store_reader.py  # Async fetch from Feature Store online store
+│       ├── online_store_reader.py  # Sync fetch from Feature Store online store
 │       └── online_store_writer.py  # Direct write to online store via v1beta1 API
 ├── feature_store/                  # Feature Store definitions and scripts
 │   ├── schema.py                   # Shared FeatureConfig dataclass
@@ -358,7 +358,7 @@ KFP training/inference pipelines are submitted locally after CI builds the image
 - **Streaming**: Apache Beam 2.50+, Dataflow (Runner V2, Streaming Engine)
 - **Data Validation**: Pydantic
 - **Data Processing**: Pandas, Polars, Dask
-- **Async HTTP**: aiohttp (micro-batch inference), gRPC async (online store reads)
+- **Async HTTP**: aiohttp (micro-batch inference)
 - **Package Management**: uv, Hatchling
 - **CI/CD**: GitHub Actions (3 workflows: CI build, Dataflow inference deploy, Dataflow feature deploy)
 
@@ -384,10 +384,10 @@ Two independent Dataflow streaming pipelines share the same Pub/Sub topic:
 
 **Inference Pipeline** (`iris_inference_pipeline.py`):
 1. **Pub/Sub** → extract `entity_id`
-2. **Online store lookup**: async gRPC fetch from Bigtable with semaphore-controlled concurrency, retry with exponential backoff
+2. **Online store lookup**: sync gRPC fetch from Bigtable, sequential per batch with retry and exponential backoff
 3. **Micro-batch**: Beam `BatchElements` groups up to 50 messages per `/predict` call (flush after 1s at low traffic)
-4. **FastAPI call**: async HTTP (`aiohttp`) overlaps multiple batch calls concurrently within a worker
-5. **BigQuery**: predictions written with `entity_id`, features, class probabilities, and timestamps
+4. **FastAPI call**: async HTTP (`aiohttp`) with retry and exponential backoff
+5. **BigQuery**: predictions written with `entity_id`, features (JSON), class probabilities, and timestamps; failed rows raise an exception
 
 Both pipelines use the **Beam SDK container image** (`Dockerfile.beam`) with all project packages pre-installed, deployed via `--sdk_container_image` and Runner V2.
 
