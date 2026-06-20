@@ -44,7 +44,7 @@ python src/dataflow/iris_feature_pipeline.py \
     --sdk_container_image $SDK_IMAGE \
     --sdk_location container \
     --use_public_ips \
-    --max_num_workers 3 \
+    --max_num_workers 5 \
     --autoscaling_algorithm THROUGHPUT_BASED \
     --streaming \
     --enable_streaming_engine \

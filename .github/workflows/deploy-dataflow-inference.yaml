@@ -112,7 +112,7 @@ jobs:
             --sdk_location container \
             --use_public_ips \
             --worker_machine_type ${{ inputs.worker_machine_type }} \
-            --max_num_workers 3 \
+            --max_num_workers 5 \
             --autoscaling_algorithm THROUGHPUT_BASED \
             --streaming \
             --enable_streaming_engine \
