@@ -20,7 +20,7 @@ import apache_beam as beam
 from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
-from apache_beam.io.gcp.bigquery import RetryStrategy, FAILED_ROWS
+from apache_beam.io.gcp.bigquery import BigQueryWriteFn, RetryStrategy
 from dataflow.utils.online_store_reader import FetchFeaturesFromOnlineStore
 from ml_pipelines_kfp.log import get_logger
 
@@ -290,7 +290,7 @@ def run_pipeline(argv=None):
     )
 
     _ = (
-        predictions[FAILED_ROWS]
+        predictions[BigQueryWriteFn.FAILED_ROWS]
         | "Raise on BQ Error" >> beam.ParDo(RaiseOnBigQueryError())
     )
 
