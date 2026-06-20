@@ -195,7 +195,10 @@ class RaiseOnBigQueryError(beam.DoFn):
     """Raise an exception when BigQuery insert fails."""
 
     def process(self, element):
-        raise RuntimeError(f"BigQuery insert failed: {element}")
+        table, row, errors = element
+        raise RuntimeError(
+            f"BigQuery insert failed for table={table}: {errors}. Row: {row}"
+        )
 
 
 def run_pipeline(argv=None):
@@ -290,7 +293,7 @@ def run_pipeline(argv=None):
     )
 
     _ = (
-        predictions[BigQueryWriteFn.FAILED_ROWS]
+        predictions[BigQueryWriteFn.FAILED_ROWS_WITH_ERRORS]
         | "Raise on BQ Error" >> beam.ParDo(RaiseOnBigQueryError())
     )
 
