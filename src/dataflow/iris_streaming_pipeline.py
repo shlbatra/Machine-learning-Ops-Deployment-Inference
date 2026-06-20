@@ -17,7 +17,7 @@ import time
 
 import aiohttp
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
 from dataflow.utils.online_store_reader import FetchFeaturesFromOnlineStore
@@ -141,6 +141,7 @@ class BatchCallFastAPIService(beam.DoFn):
                     "model_service": self.service_url,
                     "processing_time": processing_time / len(batch),
                 })
+                logger.info(f"Row processed - {row}")
                 results.append(row)
             return results
 
@@ -218,8 +219,6 @@ def run_pipeline(argv=None):
 
     pipeline_options = PipelineOptions(pipeline_args)
 
-    from apache_beam.options.pipeline_options import GoogleCloudOptions
-
     google_cloud_options = pipeline_options.view_as(GoogleCloudOptions)
     google_cloud_options.project = known_args.project_id
     google_cloud_options.region = known_args.region
@@ -230,6 +229,11 @@ def run_pipeline(argv=None):
         pipeline
         | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
         | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
+        | "Batch Elements" >> BatchElements(
+            min_batch_size=1,
+            max_batch_size=known_args.batch_size,
+            max_batch_duration_secs=known_args.max_batch_duration_secs,
+        )
         | "Fetch Features" >> beam.ParDo(
             FetchFeaturesFromOnlineStore(
                 project_id=known_args.project_id,
@@ -238,11 +242,6 @@ def run_pipeline(argv=None):
                 feature_view_id=known_args.feature_view_id,
                 feature_columns=FEATURE_COLUMNS,
             )
-        )
-        | "Batch Elements" >> BatchElements(
-            min_batch_size=1,
-            max_batch_size=known_args.batch_size,
-            max_batch_duration_secs=known_args.max_batch_duration_secs,
         )
         | "Call FastAPI Batch"
         >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
