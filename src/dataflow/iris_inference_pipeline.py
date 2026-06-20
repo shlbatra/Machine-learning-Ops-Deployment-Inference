@@ -40,10 +40,6 @@ FEATURE_COLUMNS = [
 PREDICTION_SCHEMA = {
     "fields": [
         {"name": "entity_id", "type": "STRING", "mode": "REQUIRED"},
-        {"name": "sepal_length_cm", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "sepal_width_cm", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "petal_length_cm", "type": "FLOAT", "mode": "REQUIRED"},
-        {"name": "petal_width_cm", "type": "FLOAT", "mode": "REQUIRED"},
         {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "prediction", "type": "STRING", "mode": "REQUIRED"},
         {"name": "class_probabilities", "type": "FLOAT", "mode": "REPEATED"},
@@ -141,8 +137,7 @@ class BatchCallFastAPIService(beam.DoFn):
                 results = []
                 for element, pred in zip(batch, predictions):
                     predicted_class = str(pred.get("class_", "unknown"))
-                    row = {col: element[col] for col in FEATURE_COLUMNS}
-                    row.update({
+                    row = {
                         "entity_id": element["entity_id"],
                         "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
                         "prediction": predicted_class,
@@ -150,7 +145,7 @@ class BatchCallFastAPIService(beam.DoFn):
                         "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                         "model_service": self.service_url,
                         "processing_time": processing_time / len(batch),
-                    })
+                    }
                     logger.info(f"Row processed - {row}")
                     results.append(row)
                 return results
@@ -172,10 +167,6 @@ class BatchCallFastAPIService(beam.DoFn):
         return [
             {
                 "entity_id": el["entity_id"],
-                "sepal_length_cm": el.get("sepal_length_cm", 0.0),
-                "sepal_width_cm": el.get("sepal_width_cm", 0.0),
-                "petal_length_cm": el.get("petal_length_cm", 0.0),
-                "petal_width_cm": el.get("petal_width_cm", 0.0),
                 "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
                 "prediction": "ERROR",
                 "class_probabilities": [],
