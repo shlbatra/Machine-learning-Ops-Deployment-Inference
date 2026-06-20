@@ -89,6 +89,9 @@ class ParsePubSubMessage(beam.DoFn):
 class BatchCallFastAPIService(beam.DoFn):
     """Call FastAPI with a batch of instances using async HTTP."""
 
+    MAX_RETRIES = 3
+    RETRY_BACKOFF_BASE = 2
+
     def __init__(self, service_url, max_concurrent=4):
         self.service_url = service_url
         self.predict_url = f"{service_url}/predict"
@@ -96,11 +99,15 @@ class BatchCallFastAPIService(beam.DoFn):
 
     def setup(self):
         self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
         self._session = self._loop.run_until_complete(self._create_session())
 
     async def _create_session(self):
         connector = aiohttp.TCPConnector(limit=self.max_concurrent)
-        return aiohttp.ClientSession(connector=connector)
+        timeout = aiohttp.ClientTimeout(
+            total=30, connect=10, sock_connect=10, sock_read=20,
+        )
+        return aiohttp.ClientSession(connector=connector, timeout=timeout)
 
     def teardown(self):
         self._loop.run_until_complete(self._session.close())
@@ -118,54 +125,66 @@ class BatchCallFastAPIService(beam.DoFn):
             for e in batch
         ]
 
-        try:
-            async with self._session.post(
-                self.predict_url,
-                json={"instances": instances},
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as response:
-                response.raise_for_status()
-                result_data = await response.json()
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with self._session.post(
+                    self.predict_url,
+                    json={"instances": instances},
+                ) as response:
+                    response.raise_for_status()
+                    result_data = await response.json()
 
-            predictions = result_data.get("predictions", [])
-            processing_time = time.time() - start_time
+                predictions = result_data.get("predictions", [])
+                processing_time = time.time() - start_time
 
-            results = []
-            for element, pred in zip(batch, predictions):
-                predicted_class = str(pred.get("class_", "unknown"))
-                row = {col: element[col] for col in FEATURE_COLUMNS}
-                row.update({
-                    "entity_id": element["entity_id"],
-                    "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
-                    "prediction": predicted_class,
-                    "class_probabilities": pred.get("class_probabilities", []),
-                    "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
-                    "model_service": self.service_url,
-                    "processing_time": processing_time / len(batch),
-                })
-                logger.info(f"Row processed - {row}")
-                results.append(row)
-            return results
+                results = []
+                for element, pred in zip(batch, predictions):
+                    predicted_class = str(pred.get("class_", "unknown"))
+                    row = {col: element[col] for col in FEATURE_COLUMNS}
+                    row.update({
+                        "entity_id": element["entity_id"],
+                        "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                        "prediction": predicted_class,
+                        "class_probabilities": pred.get("class_probabilities", []),
+                        "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
+                        "model_service": self.service_url,
+                        "processing_time": processing_time / len(batch),
+                    })
+                    logger.info(f"Row processed - {row}")
+                    results.append(row)
+                return results
 
-        except Exception as e:
-            logging.error(f"Batch prediction failed ({len(batch)} instances): {e}")
-            processing_time = time.time() - start_time
-            return [
-                {
-                    "entity_id": el["entity_id"],
-                    "sepal_length_cm": el.get("sepal_length_cm", 0.0),
-                    "sepal_width_cm": el.get("sepal_width_cm", 0.0),
-                    "petal_length_cm": el.get("petal_length_cm", 0.0),
-                    "petal_width_cm": el.get("petal_width_cm", 0.0),
-                    "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
-                    "prediction": "ERROR",
-                    "class_probabilities": [],
-                    "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
-                    "model_service": f"ERROR: {str(e)}",
-                    "processing_time": processing_time,
-                }
-                for el in batch
-            ]
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_error = e
+                wait = self.RETRY_BACKOFF_BASE ** attempt
+                logger.warning(
+                    f"Batch prediction attempt {attempt + 1}/{self.MAX_RETRIES} "
+                    f"failed ({len(batch)} instances): {e}. Retrying in {wait}s..."
+                )
+                await asyncio.sleep(wait)
+            except Exception as e:
+                last_error = e
+                break
+
+        logging.error(f"Batch prediction failed after retries ({len(batch)} instances): {last_error}")
+        processing_time = time.time() - start_time
+        return [
+            {
+                "entity_id": el["entity_id"],
+                "sepal_length_cm": el.get("sepal_length_cm", 0.0),
+                "sepal_width_cm": el.get("sepal_width_cm", 0.0),
+                "petal_length_cm": el.get("petal_length_cm", 0.0),
+                "petal_width_cm": el.get("petal_width_cm", 0.0),
+                "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                "prediction": "ERROR",
+                "class_probabilities": [],
+                "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
+                "model_service": f"ERROR: {str(last_error)}",
+                "processing_time": processing_time,
+            }
+            for el in batch
+        ]
 
 
 class AddProcessingMetadata(beam.DoFn):
