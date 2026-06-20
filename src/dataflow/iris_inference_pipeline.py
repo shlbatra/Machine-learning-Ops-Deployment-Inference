@@ -20,6 +20,7 @@ import apache_beam as beam
 from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions
 from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
+from apache_beam.io.gcp.bigquery import RetryStrategy
 from dataflow.utils.online_store_reader import FetchFeaturesFromOnlineStore
 from ml_pipelines_kfp.log import get_logger
 
@@ -190,6 +191,13 @@ class AddProcessingMetadata(beam.DoFn):
         yield element
 
 
+class RaiseOnBigQueryError(beam.DoFn):
+    """Raise an exception when BigQuery insert fails."""
+
+    def process(self, element):
+        raise RuntimeError(f"BigQuery insert failed: {element}")
+
+
 def run_pipeline(argv=None):
     """Run the Dataflow streaming pipeline."""
 
@@ -274,10 +282,16 @@ def run_pipeline(argv=None):
             schema=PREDICTION_SCHEMA,
             write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
             create_disposition=beam.io.BigQueryDisposition.CREATE_NEVER,
+            insert_retry_strategy=RetryStrategy.RETRY_NEVER,
             additional_bq_parameters={
                 "timePartitioning": {"type": "DAY", "field": "prediction_timestamp"}
             },
         )
+    )
+
+    _ = (
+        predictions[WriteToBigQuery.FAILED_ROWS]
+        | "Raise on BQ Error" >> beam.ParDo(RaiseOnBigQueryError())
     )
 
     result = pipeline.run()
