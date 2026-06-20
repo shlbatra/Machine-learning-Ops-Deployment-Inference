@@ -46,6 +46,7 @@ PREDICTION_SCHEMA = {
         {"name": "petal_width_cm", "type": "FLOAT", "mode": "REQUIRED"},
         {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "prediction", "type": "STRING", "mode": "REQUIRED"},
+        {"name": "class_probabilities", "type": "STRING", "mode": "NULLABLE"},
         {"name": "prediction_timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "model_service", "type": "STRING", "mode": "REQUIRED"},
         {"name": "processing_time", "type": "FLOAT", "mode": "NULLABLE"},
@@ -131,12 +132,13 @@ class BatchCallFastAPIService(beam.DoFn):
 
             results = []
             for element, pred in zip(batch, predictions):
-                predicted_class = str(pred.get("prediction", "unknown"))
+                predicted_class = str(pred.get("class_", "unknown"))
                 row = {col: element[col] for col in FEATURE_COLUMNS}
                 row.update({
                     "entity_id": element["entity_id"],
                     "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
                     "prediction": predicted_class,
+                    "class_probabilities": json.dumps(pred.get("class_probabilities", [])),
                     "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                     "model_service": self.service_url,
                     "processing_time": processing_time / len(batch),
@@ -157,6 +159,7 @@ class BatchCallFastAPIService(beam.DoFn):
                     "petal_width_cm": el.get("petal_width_cm", 0.0),
                     "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
                     "prediction": "ERROR",
+                    "class_probabilities": None,
                     "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                     "model_service": f"ERROR: {str(e)}",
                     "processing_time": processing_time,
