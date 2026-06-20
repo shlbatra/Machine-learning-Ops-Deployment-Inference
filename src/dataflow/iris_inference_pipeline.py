@@ -243,6 +243,11 @@ def run_pipeline(argv=None):
                 feature_columns=FEATURE_COLUMNS,
             )
         )
+        | "Batch for Prediction" >> BatchElements(
+            min_batch_size=1,
+            max_batch_size=known_args.batch_size,
+            max_batch_duration_secs=known_args.max_batch_duration_secs,
+        )
         | "Call FastAPI Batch"
         >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
         | "Add Metadata" >> beam.ParDo(AddProcessingMetadata())
