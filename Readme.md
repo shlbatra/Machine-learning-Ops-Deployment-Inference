@@ -13,48 +13,71 @@ This repository implements a complete ML pipeline for the Iris dataset classific
 - Model registration and versioning in Vertex AI
 - Automated deployment to FastAPI services on Cloud Run
 - Batch inference capabilities
-- Real-time streaming inference with Dataflow
+- Feature Store with offline (BQ) and online (Bigtable) serving
+- Streaming feature ingestion via Dataflow (Pub/Sub → dual-write BQ + Bigtable)
+- Real-time streaming inference via Dataflow (online store lookup → FastAPI → BQ)
 - REST API serving with FastAPI
 
 ## Key Features
 
-- **Component-based Architecture**: Modular, reusable pipeline components
+- **Component-based Architecture**: Modular, reusable KFP pipeline components
 - **Multi-model Training**: Trains multiple models in parallel and selects the best performer
-- **Cloud-native**: Deep integration with Google Cloud services (Vertex AI, BigQuery, GCS)
-- **Production-ready**: Includes model versioning, schema validation, and deployment automation
-- **Containerized**: Each component runs in Docker containers with isolated dependencies
+- **Feature Store**: Vertex AI Feature Store V2 with offline (BQ) and online (Bigtable) serving
+- **Dual Streaming Pipelines**: Independent feature ingestion and real-time inference via Dataflow
+- **Cloud-native**: Deep integration with Google Cloud (Vertex AI, BigQuery, GCS, Cloud Run, Dataflow, Pub/Sub)
+- **Production-ready**: Model versioning, blessed-model deployment, Pydantic validation, structured logging
+- **Containerized**: Three Docker images (KFP components, FastAPI serving, Beam SDK workers)
 
 ## Project Structure
 
 ```
 src/
-├── ml_pipelines_kfp/           # ML pipeline components and serving
-│   ├── constants.py            # Shared GCP settings (project, region, bucket, env)
-│   ├── log.py                  # Shared JSON logging helper
-│   └── iris_xgboost/           # Iris classification implementation
-│       ├── pipelines/          # KFP pipeline definitions
-│       │   ├── components/     # Reusable pipeline components
+├── ml_pipelines_kfp/               # ML pipeline components and serving
+│   ├── constants.py                # Shared GCP settings (project, region, bucket, env)
+│   ├── log.py                      # Shared JSON logging helper
+│   ├── schemas/                    # Input/output schemas for Vertex AI
+│   │   └── iris_xgboost/vertex/    # instance.yaml, prediction.yaml
+│   ├── notebooks/                  # Jupyter notebooks for exploration/verification
+│   │   ├── verify_model_features.ipynb
+│   │   ├── test_notebook_feature_platform.ipynb
+│   │   └── test_inference.ipynb
+│   └── iris_xgboost/               # Iris classification implementation
+│       ├── pipelines/              # KFP pipeline definitions
+│       │   ├── components/         # Reusable pipeline components
+│       │   │   └── fastapi/        # FastAPI server component
 │       │   ├── iris_pipeline_training.py
 │       │   └── iris_pipeline_inference.py
-│       ├── models/             # Pydantic models for API (Instance, Prediction)
-│       ├── bq_dataloader.py    # BigQuery data loading utility
-│       └── constants.py        # Iris-specific constants (model name, BQ tables)
-├── dataflow/                   # Dataflow streaming pipelines
+│       ├── models/                 # Pydantic models for API (Instance, Prediction)
+│       └── constants.py            # Iris-specific constants (model name, BQ tables)
+├── dataflow/                       # Dataflow streaming pipelines
 │   ├── iris_feature_pipeline.py    # Pub/Sub → Feature Store (dual-write BQ + Bigtable)
 │   ├── iris_inference_pipeline.py  # Pub/Sub → online store lookup → FastAPI → BQ
-│   ├── models/                 # Pydantic schemas for Pub/Sub messages
-│   └── utils/                  # Reusable DoFns (online_store_reader, online_store_writer)
-├── feature_store/              # Feature Store definitions and scripts
-│   ├── schema.py               # Shared FeatureConfig dataclass
-│   ├── ingest.py               # Raw BQ → canonical feature table
-│   ├── setup.py                # One-time online store + feature view creation
-│   ├── sync.py                 # Trigger FeatureView sync (offline → online)
-│   └── iris/                   # Iris-specific feature definitions
+│   ├── models/                     # Pydantic schemas for Pub/Sub messages
+│   │   └── iris_schema.py
+│   └── utils/                      # Reusable Beam DoFns
+│       ├── online_store_reader.py  # Async fetch from Feature Store online store
+│       └── online_store_writer.py  # Direct write to online store via v1beta1 API
+├── feature_store/                  # Feature Store definitions and scripts
+│   ├── schema.py                   # Shared FeatureConfig dataclass
+│   ├── ingest.py                   # Raw BQ → canonical feature table
+│   ├── setup.py                    # One-time online store + feature view creation
+│   ├── sync.py                     # Trigger FeatureView sync (offline → online)
+│   └── iris/                       # Iris-specific feature definitions
 │       └── feature_definitions.py
-schemas/                        # Input/output schemas for Vertex AI
-Dockerfile                      # FastAPI serving container
-Dockerfile.beam                 # Beam SDK container for Dataflow workers
-pyproject.toml                  # Project dependencies
+scripts/
+├── load_data.sh                    # Load Iris data to BigQuery
+├── setup_feature_store.sh          # One-time Feature Store setup
+├── deploy_dataflow_feature.sh      # Deploy feature ingestion Dataflow job
+├── deploy_dataflow_streaming.sh    # Deploy inference Dataflow job
+├── run_pubsub_producer.sh          # Publish test events to Pub/Sub
+├── setup_pubsub.sh                 # Create Pub/Sub topic/subscription
+├── setup_artifact_registry.sh      # Create Artifact Registry repo
+└── clean_reinstall.sh              # Clean venv and reinstall
+test/                               # Unit/integration tests
+Dockerfile                          # KFP component container
+Dockerfile.fastapi                  # FastAPI serving container
+Dockerfile.beam                     # Beam SDK container for Dataflow workers
+pyproject.toml                      # Project dependencies (hatchling build)
 ```
 
 ## Prerequisites
@@ -246,41 +269,56 @@ mypy src/
 ## Architecture
 
 ```
-                    Push to feature branch          Merge to main
-                           |                              |
-                    [GitHub Actions]                [GitHub Actions]
-                           |                              |
-                  Build images:<branch>           Build images:main
-                           |                              |
-                  Run KFP pipeline              Run KFP pipeline
-                  ENV=staging                     ENV=prod
-                           |                              |
-              +------------+----------+       +-----------+-----------+
-              |                       |       |                       |
-        [Training]              [Inference]  [Training]           [Inference]
-              |                       |       |                       |
-    Model Registry:                          Model Registry:
-    XGBoost-staging                          XGBoost
-              |                                    |
-    Cloud Run:                              Cloud Run:
-    ...-service-staging                     ...-service
-              |                                    |
-    Dataflow:staging                        Dataflow:prod
-              \                                   /
-               \                                 /
-                +--- Shared: BQ:ml_dataset -----+
-                +--- Shared: PubSub:iris-inference-data ---+
+                    Push / PR                         Merge to main
+                        |                                   |
+                 [GitHub Actions CI]                 [GitHub Actions CI]
+                        |                                   |
+              Build 3 images:<branch>             Build 3 images:main
+              (KFP, FastAPI, Beam)                 (KFP, FastAPI, Beam)
+                        |                                   |
+                 Run KFP pipeline                   Run KFP pipeline
+                 ENV=staging                         ENV=prod
+                        |                                   |
+           +------------+------------+       +--------------+--------------+
+           |                         |       |                             |
+     [Training]               [Batch Inf]  [Training]               [Batch Inf]
+           |                         |       |                             |
+   Model Registry:       Get Model: blessed  Model Registry:    Get Model: blessed
+   XGBoost-staging      + BQ Feature Store   XGBoost           + BQ Feature Store
+                                     |                                     |
+                             BQ:iris_predictions                   BQ:iris_predictions
+                               _staging
+           |                                       |
+   Cloud Run:                                Cloud Run:
+   ...-service-staging                       ...-service
+           |                                       |
+           +-------------- Shared ----------------+
+                               |
+                      PubSub:iris-inference-data
+                          /              \
+          [Dataflow: Feature Pipeline]  [Dataflow: Inference Pipeline]
+                     |                           |
+            dual-write to:              online store lookup →
+            BQ (offline) +               FastAPI → BQ predictions
+            Bigtable (online)
+                     |                           ^
+                     |     features served via    |
+                     +----------------------------+
+                     |
+              Feature Store
+              (offline: BQ  |  online: Bigtable)
 ```
 
 The project follows a component-based architecture where each ML pipeline step is a self-contained KFP component:
 
 1. **Data Component**: Loads and splits data from BigQuery
-2. **Model Components**: Implements various ML algorithms
+2. **Model Components**: Implements various ML algorithms (Decision Tree, Random Forest, XGBoost)
 3. **Evaluation Component**: Compares model performance
 4. **Registry Component**: Manages model versioning with "blessed" aliases
 5. **Deployment Component**: Deploys blessed models to Cloud Run FastAPI services
-6. **Inference Component**: Performs batch predictions
-7. **Streaming Component**: Real-time inference via Dataflow and Pub/Sub
+6. **Batch Inference Component**: Scores unlabeled data using the blessed model
+7. **Feature Pipeline** (Dataflow): Pub/Sub → dual-write to BQ offline + Bigtable online store
+8. **Inference Pipeline** (Dataflow): Pub/Sub → online store feature lookup → FastAPI → BQ predictions
 
 ## Configuration
 
@@ -293,23 +331,36 @@ Set `ENVIRONMENT=staging` or `ENVIRONMENT=prod` to switch all resource names. De
 
 ## CI/CD
 
-The repository includes GitHub Actions workflow (`.github/workflows/cicd.yaml`) that:
-- Builds Docker images for KFP components and FastAPI inference containers
+The repository includes three GitHub Actions workflows:
+
+**`cicd.yaml`** — Triggers on every push to `main` and on all PRs:
+- Builds **three** Docker images: KFP component, FastAPI inference, and Beam SDK (Dataflow workers)
 - Tags images with the branch name (e.g. `fix-logging` for feature branches, `main` for production)
 - Pushes to Google Artifact Registry
-- Triggers on every push to any branch
 
-Pipelines are submitted locally after CI builds the images — no automated pipeline deployment in CI.
+**`deploy-dataflow.yaml`** — Manual dispatch (`workflow_dispatch`) for deploying the streaming inference Dataflow job:
+- Configurable environment (staging/prod), region, machine type, batch size, and concurrency
+- Uses the Beam SDK container image built by CI
+
+**`deploy-dataflow-feature.yaml`** — Manual dispatch for deploying the feature ingestion Dataflow job:
+- Same configurability as the inference pipeline
+- Deploys the dual-write feature pipeline (Pub/Sub → BQ + Bigtable)
+
+KFP training/inference pipelines are submitted locally after CI builds the images — no automated pipeline deployment in CI.
 
 ## Technologies
 
 - **Orchestration**: Kubeflow Pipelines 2.8.0
-- **Cloud Platform**: Google Cloud (Vertex AI, BigQuery, GCS, Cloud Run, Dataflow)
+- **Cloud Platform**: Google Cloud (Vertex AI, BigQuery, GCS, Cloud Run, Dataflow, Pub/Sub)
+- **Feature Store**: Vertex AI Feature Store V2 (BigQuery offline + Bigtable online)
 - **ML Frameworks**: scikit-learn, XGBoost
 - **API Framework**: FastAPI
-- **Streaming**: Apache Beam, Dataflow, Pub/Sub
+- **Streaming**: Apache Beam 2.50+, Dataflow (Runner V2, Streaming Engine)
+- **Data Validation**: Pydantic
 - **Data Processing**: Pandas, Polars, Dask
+- **Async HTTP**: aiohttp (micro-batch inference), gRPC async (online store reads)
 - **Package Management**: uv, Hatchling
+- **CI/CD**: GitHub Actions (3 workflows: CI build, Dataflow inference deploy, Dataflow feature deploy)
 
 ## Deployment Architecture
 
@@ -324,16 +375,21 @@ The project uses a **blessed model pattern** for production deployments:
 
 ### Streaming Architecture
 
-Real-time inference is handled through:
+Two independent Dataflow streaming pipelines share the same Pub/Sub topic:
 
-1. **Data Ingestion**: Pub/Sub receives real-time inference requests
-2. **Stream Processing**: Dataflow processes messages with micro-batching and calls FastAPI services
-3. **Model Serving**: Cloud Run hosts FastAPI containers with blessed models
-4. **Results Storage**: Predictions are written to BigQuery for monitoring
+**Feature Pipeline** (`iris_feature_pipeline.py`):
+1. **Pub/Sub** → parse and validate with Pydantic
+2. **Rename** raw fields to canonical feature names
+3. **Dual-write**: BQ `iris_features` table (offline store) + Bigtable (online store via v1beta1 `feature_view_direct_write`)
 
-Streaming supports **micro-batching** via Beam's `BatchElements` with `max_batch_duration_secs`. Up to 50 messages are grouped into a single `/predict` call, reducing HTTP overhead by ~10-50x. At low traffic, partial batches flush after 1 second so no message waits indefinitely. Both `--batch_size` and `--max_batch_duration_secs` are tunable via CLI args.
+**Inference Pipeline** (`iris_inference_pipeline.py`):
+1. **Pub/Sub** → extract `entity_id`
+2. **Online store lookup**: async gRPC fetch from Bigtable with semaphore-controlled concurrency, retry with exponential backoff
+3. **Micro-batch**: Beam `BatchElements` groups up to 50 messages per `/predict` call (flush after 1s at low traffic)
+4. **FastAPI call**: async HTTP (`aiohttp`) overlaps multiple batch calls concurrently within a worker
+5. **BigQuery**: predictions written with `entity_id`, features, class probabilities, and timestamps
 
-For high-volume workloads, the pipeline also uses **async HTTP** (`aiohttp`) to overlap multiple batch calls concurrently within a single worker, providing an additional ~2-4x throughput improvement on top of batching.
+Both pipelines use the **Beam SDK container image** (`Dockerfile.beam`) with all project packages pre-installed, deployed via `--sdk_container_image` and Runner V2.
 
 ### Feature Store Architecture
 
@@ -370,9 +426,10 @@ Feature definitions live in `src/feature_store/` with a shared `FeatureConfig` c
 ### Key Benefits
 
 - **Cost Effective**: Cloud Run FastAPI services cost ~90% less than Vertex AI endpoints
-- **Scalable**: Dataflow auto-scales based on Pub/Sub message volume
-- **Reliable**: Only production-ready "blessed" models are deployed
-- **Observable**: All predictions logged to BigQuery with metadata
+- **Scalable**: Dataflow auto-scales based on Pub/Sub message volume with Streaming Engine
+- **Reliable**: Blessed-model deployments, retry with backoff on online store reads, Pydantic message validation
+- **Consistent Features**: Single Feature Store serves training (offline/BQ), batch (offline/BQ), and real-time (online/Bigtable)
+- **Observable**: All predictions logged to BigQuery with metadata; structured JSON logging via Cloud Logging
 
 ## Logging
 
