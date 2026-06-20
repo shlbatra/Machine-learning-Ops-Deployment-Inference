@@ -31,7 +31,7 @@ echo "Service URL: $SERVICE_URL"
 
 # Run the Dataflow job
 echo "Starting Dataflow streaming job: $JOB_NAME"
-python src/ml_pipelines_kfp/dataflow/iris_streaming_pipeline.py \
+python src/ml_pipelines_kfp/dataflow/iris_inference_pipeline.py \
     --input_topic $PUBSUB_TOPIC \
     --output_table $OUTPUT_TABLE \
     --project_id $PROJECT_ID \

@@ -89,7 +89,7 @@ jobs:
           JOB_NAME="${{ env.JOB_PREFIX }}-$(date +%Y%m%d-%H%M%S)"
           echo "Submitting ${{ inputs.environment }} job: $JOB_NAME"
 
-          python src/dataflow/iris_streaming_pipeline.py \
+          python src/dataflow/iris_inference_pipeline.py \
             --input_topic ${{ env.PUBSUB_TOPIC }} \
             --output_table ${{ env.OUTPUT_TABLE }} \
             --project_id ${{ env.PROJECT_ID }} \

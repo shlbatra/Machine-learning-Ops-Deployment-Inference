@@ -195,7 +195,7 @@ Decouples feature ingestion from inference. This pipeline's only job is to persi
 **Create `Dockerfile.beam`** — custom Beam SDK container image (`apache/beam_python3.10_sdk` base):
 - Pre-installs all project packages (`dataflow`, `feature_store`, `ml_pipelines_kfp`) into the image
 - Workers boot from this image directly — no pip install at runtime, faster autoscale startup
-- Required because Dataflow workers need the `dataflow` package to unpickle DoFns defined in separate modules (unlike `iris_streaming_pipeline.py` which defines all DoFns inline)
+- Required because Dataflow workers need the `dataflow` package to unpickle DoFns defined in separate modules (unlike `iris_inference_pipeline.py` which defines all DoFns inline)
 
 **Update `.github/workflows/cicd.yaml`** — builds and pushes `dataflow-beam:TAG` image alongside the existing two images
 
@@ -210,7 +210,7 @@ Decouples feature ingestion from inference. This pipeline's only job is to persi
 
 This pipeline reads features from the online store and runs inference — fully decoupled from feature ingestion.
 
-**Modify `src/dataflow/iris_streaming_pipeline.py`** — refactor the existing pipeline:
+**Modify `src/dataflow/iris_inference_pipeline.py`** — refactor the existing pipeline:
 - `ParsePubSubMessage` stays — but now the message only needs to carry an `entity_id` (or `sample_id`), not the full feature payload
 - Replace `BatchCallFastAPIService` field mapping (lines 96-104) with an online store lookup: read features by `entity_id` from the online store, then call `/predict` (or `/predict_by_id` which does the lookup server-side)
 - Keep the existing BQ prediction write + metadata steps unchanged
@@ -251,7 +251,7 @@ This pipeline reads features from the online store and runs inference — fully 
 | Create | `src/dataflow/iris_feature_pipeline.py` | Streaming feature pipeline: Pub/Sub → dual-write (BQ + Bigtable) |
 | Create | `src/dataflow/models/iris_schema.py` | Pydantic model for Pub/Sub message validation |
 | Create | `src/dataflow/utils/online_store_writer.py` | Reusable DoFn for v1beta1 direct online store writes |
-| Modify | `src/dataflow/iris_streaming_pipeline.py` | Streaming inference pipeline: read from online store → predict |
+| Modify | `src/dataflow/iris_inference_pipeline.py` | Streaming inference pipeline: read from online store → predict |
 | **Docker / CI** | | |
 | Create | `Dockerfile.beam` | Custom Beam SDK container image for Dataflow workers |
 | Modify | `.github/workflows/cicd.yaml` | Build/push `dataflow-beam` image |
@@ -285,4 +285,4 @@ This pipeline reads features from the online store and runs inference — fully 
 6. **Batch inference**: Run inference pipeline — confirm it reads from `iris_features` without column rename hacks, scores all rows
 7. **FastAPI**: Start server locally (`uvicorn`), test `/predict` with both CamelCase and canonical names, test `/predict_by_id` with an entity ID
 8. **Streaming feature pipeline**: Deploy `iris_feature_pipeline.py`, send Pub/Sub messages, verify new rows appear in `iris_features` and online store
-9. **Streaming inference pipeline**: Deploy `iris_streaming_pipeline.py`, send Pub/Sub messages with entity IDs, verify predictions written to BQ
+9. **Streaming inference pipeline**: Deploy `iris_inference_pipeline.py`, send Pub/Sub messages with entity IDs, verify predictions written to BQ

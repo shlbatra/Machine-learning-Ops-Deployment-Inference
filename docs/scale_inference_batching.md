@@ -2,7 +2,7 @@
 
 ## Context
 
-The current Dataflow streaming pipeline (`iris_streaming_pipeline.py`) makes **one synchronous HTTP call per Pub/Sub message**. For every single iris sample, it:
+The current Dataflow streaming pipeline (`iris_inference_pipeline.py`) makes **one synchronous HTTP call per Pub/Sub message**. For every single iris sample, it:
 1. Builds a payload with 1 instance
 2. Calls `requests.post()` synchronously (blocking the worker thread for ~30-100ms of network round-trip)
 3. Waits for the response before processing the next message
@@ -32,7 +32,7 @@ No `FixedWindows` needed. `BatchElements` with `max_batch_duration_secs=1` uses 
 
 ## Changes
 
-All changes are in a single file: `src/dataflow/iris_streaming_pipeline.py`
+All changes are in a single file: `src/dataflow/iris_inference_pipeline.py`
 
 ### 1. Add micro-batching to the pipeline
 
@@ -304,7 +304,7 @@ Phase 1 alone gives the biggest win. Phase 2 adds concurrency on top. If traffic
 
 | File | Action |
 |---|---|
-| `src/dataflow/iris_streaming_pipeline.py` | Add `BatchElements` with `max_batch_duration_secs`, replace `CallFastAPIService` with `BatchCallFastAPIService`, add `--batch_size` and `--max_batch_duration_secs` CLI args |
+| `src/dataflow/iris_inference_pipeline.py` | Add `BatchElements` with `max_batch_duration_secs`, replace `CallFastAPIService` with `BatchCallFastAPIService`, add `--batch_size` and `--max_batch_duration_secs` CLI args |
 | `.github/workflows/deploy-dataflow.yaml` | Add `--batch_size` and `--max_batch_duration_secs` flags if overriding defaults |
 
 No changes to `fastapi_server.py` — it already handles batched instances.
@@ -313,7 +313,7 @@ No changes to `fastapi_server.py` — it already handles batched instances.
 
 1. **Unit test locally with DirectRunner (staging):**
    ```bash
-   python src/dataflow/iris_streaming_pipeline.py \
+   python src/dataflow/iris_inference_pipeline.py \
        --input_topic projects/deeplearning-sahil/topics/iris-inference-data \
        --output_table deeplearning-sahil:ml_dataset.iris_predictions_streaming_staging \
        --project_id deeplearning-sahil \
