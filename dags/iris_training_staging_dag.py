@@ -56,9 +56,6 @@ with DAG(
             "--bq-feature-table", "{{ params.bq_feature_table }}",
             "--service-account", "{{ params.service_account }}",
         ],
-        env_vars=[
-            k8s.V1EnvVar(name="ENVIRONMENT", value="staging"),
-        ],
         startup_timeout_seconds=300,
         resources=k8s.V1ResourceRequirements(
             requests={"cpu": "500m", "memory": "1Gi"},
