@@ -341,9 +341,11 @@ DAGS_BUCKET=$(gcloud composer environments describe ml-pipelines-composer \
 # Sync all DAGs to Composer
 gsutil -m rsync -r dags/ $DAGS_BUCKET/
 
-# Or upload a single DAG
-gsutil cp dags/iris_training_dag.py $DAGS_BUCKET/
-gsutil cp dags/iris_batch_inference_dag.py $DAGS_BUCKET/
+# Or upload individual DAGs
+gsutil cp dags/iris_training_staging_dag.py $DAGS_BUCKET/
+gsutil cp dags/iris_training_prod_dag.py $DAGS_BUCKET/
+gsutil cp dags/iris_batch_inference_staging_dag.py $DAGS_BUCKET/
+gsutil cp dags/iris_batch_inference_prod_dag.py $DAGS_BUCKET/
 ```
 
 After uploading, DAGs appear in the Airflow UI within ~30 seconds (Composer polls the bucket automatically).
@@ -367,15 +369,6 @@ Add GitHub Actions steps to sync DAGs after Docker image push:
         run: |
           gsutil -m rsync -r -d dags/ ${{ steps.composer.outputs.dags_bucket }}/
 ```
-
-### 5c. Environment Promotion
-
-Image tags are deterministic from `ENV` — the DAG computes the right tag (`main` for prod, `staging` for staging) without any Airflow variable update. CI just needs to push images with those well-known tags.
-
-| Event | Action |
-|---|---|
-| PR push | Build images with branch tag, sync DAGs |
-| Merge to main | Build images with `main` tag, sync DAGs |
 
 ---
 
