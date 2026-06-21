@@ -16,6 +16,10 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     BQ_FEATURE_TABLE,
     BQ_TABLE_PREDICTIONS,
 )
+from ml_pipelines_kfp.iris_xgboost.pipelines.components.get_model import get_model
+from ml_pipelines_kfp.iris_xgboost.pipelines.components.inference import (
+    inference_model,
+)
 
 
 @kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-inference", pipeline_root=PIPELINE_ROOT)
@@ -26,14 +30,6 @@ def pipeline(
     bq_feature_table: str,
     bq_table_predictions: str,
 ):
-
-    # Import components
-    from ml_pipelines_kfp.iris_xgboost.pipelines.components.get_model import get_model
-    from ml_pipelines_kfp.iris_xgboost.pipelines.components.inference import (
-        inference_model,
-    )
-
-    # Start pipeline definition
 
     get_model_op = get_model(
         project_id=project_id, location=location, model_name=MODEL_NAME
