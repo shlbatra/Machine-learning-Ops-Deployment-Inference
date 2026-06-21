@@ -26,7 +26,7 @@ with DAG(
     schedule_interval=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=["ml", "training", "iris", "staging"],
+    tags=["ml", "training", "iris-staging"],
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),

@@ -24,7 +24,7 @@ with DAG(
     schedule_interval="0 8 * * *",
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=["ml", "inference", "iris", "batch", "prod"],
+    tags=["ml", "inference", "batch", "iris-prod"],
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
