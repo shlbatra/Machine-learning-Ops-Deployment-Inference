@@ -28,6 +28,7 @@ def coalesce(*args):
 @kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-training", pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: str):
 
+    # Import components
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.data import (
         load_data_from_feature_store,
     )
@@ -44,6 +45,7 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: 
         deploy_blessed_model_to_fastapi,
     )
 
+    # Start pipeline definition
     data_op = load_data_from_feature_store(
         project_id=project_id,
         bq_dataset=bq_dataset,

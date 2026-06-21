@@ -25,11 +25,13 @@ def pipeline(
     bq_table_predictions: str,
 ):
 
+    # Import components
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.get_model import get_model
     from ml_pipelines_kfp.iris_xgboost.pipelines.components.inference import (
         inference_model,
     )
 
+    # Start pipeline definition
     get_model_op = get_model(
         project_id=project_id, location=location, model_name=MODEL_NAME
     ).set_display_name("Get Model")
