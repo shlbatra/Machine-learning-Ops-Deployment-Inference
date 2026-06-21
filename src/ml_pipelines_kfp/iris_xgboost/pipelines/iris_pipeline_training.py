@@ -21,29 +21,28 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     BQ_FEATURE_TABLE,
     FASTAPI_IMAGE_NAME,
 )
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.data import (
-    load_data_from_feature_store,
-)
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.schema import load_schema
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.evaluation import (
-    choose_best_model,
-)
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.models import (
-    decision_tree,
-    random_forest,
-)
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.register import upload_model
-from ml_pipelines_kfp.iris_xgboost.pipelines.components.deploy import (
-    deploy_blessed_model_to_fastapi,
-)
-
-
 def coalesce(*args):
     return next((a for a in args if a is not None), None)
 
 
 @kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-training", pipeline_root=PIPELINE_ROOT)
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: str):
+
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.data import (
+        load_data_from_feature_store,
+    )
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.schema import load_schema
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.evaluation import (
+        choose_best_model,
+    )
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.models import (
+        decision_tree,
+        random_forest,
+    )
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.register import upload_model
+    from ml_pipelines_kfp.iris_xgboost.pipelines.components.deploy import (
+        deploy_blessed_model_to_fastapi,
+    )
 
     data_op = load_data_from_feature_store(
         project_id=project_id,
