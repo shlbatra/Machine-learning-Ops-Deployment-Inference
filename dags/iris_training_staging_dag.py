@@ -57,7 +57,7 @@ with DAG(
             "--service-account", "{{ params.service_account }}",
         ],
         startup_timeout_seconds=300,
-        resources=k8s.V1ResourceRequirements(
+        container_resources=k8s.V1ResourceRequirements(
             requests={"cpu": "500m", "memory": "1Gi"},
             limits={"cpu": "1", "memory": "2Gi"},
         ),
