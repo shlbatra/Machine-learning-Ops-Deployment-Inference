@@ -3,7 +3,7 @@ import sys
 import os
 import kfp
 import google.cloud.aiplatform as aip
-from google.oauth2 import service_account
+import google.auth
 
 from ml_pipelines_kfp.iris_xgboost.constants import (
     PIPELINE_NAME,
@@ -15,7 +15,6 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     BQ_DATASET,
     BQ_FEATURE_TABLE,
     BQ_TABLE_PREDICTIONS,
-    SERVICE_ACCOUNT_PATH,
 )
 
 
@@ -63,11 +62,9 @@ if __name__ == "__main__":
     parser.add_argument("--bq-dataset", default=BQ_DATASET)
     parser.add_argument("--bq-feature-table", default=BQ_FEATURE_TABLE)
     parser.add_argument("--bq-table-predictions", default=BQ_TABLE_PREDICTIONS)
-    parser.add_argument("--service-account-path", default=SERVICE_ACCOUNT_PATH)
     cli = parser.parse_args()
 
-    credentials = service_account.Credentials.from_service_account_file(
-        filename=cli.service_account_path,
+    credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
