@@ -91,4 +91,4 @@ jobs:
 
       - name: Sync DAGs to Composer
         run: |
-          gcloud storage rsync dags/ ${{ steps.composer.outputs.dags_bucket }}/ --recursive --delete-unmatched-destination-objects
+          gcloud storage cp dags/*.py ${{ steps.composer.outputs.dags_bucket }}/
