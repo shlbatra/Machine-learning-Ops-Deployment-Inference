@@ -23,7 +23,7 @@ with DAG(
     dag_id="iris_training_prod",
     default_args=default_args,
     description="Train Iris classifier (prod)",
-    schedule_interval="0 6 * * 1",
+    schedule_interval="0 6 * * *",
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["ml", "training", "iris-prod"],
