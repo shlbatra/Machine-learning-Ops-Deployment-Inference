@@ -1,9 +1,11 @@
+import os
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 from kubernetes.client import models as k8s
 
+ENV = os.getenv("ENVIRONMENT", "staging")
 PROJECT_ID = "deeplearning-sahil"
 REGION = "us-central1"
 BUCKET = "gs://sb-vertex"
@@ -15,15 +17,15 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": True,
     "email": ["shlbatra123bot@gmail.com"],
-    "retries": 2,
+    "retries": 0,
     "retry_delay": timedelta(minutes=5),
 }
 
 with DAG(
-    dag_id="iris_training",
+    dag_id=f"iris_training_{ENV}",
     default_args=default_args,
     description="Train Iris classifier, register and deploy best model",
-    schedule_interval="0 6 * * 1",
+    schedule_interval="0 6 * * 1" if ENV == "prod" else None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["ml", "training", "iris"],
