@@ -79,3 +79,16 @@ jobs:
         run: |
           docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           docker push ${{ env.LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.BEAM_IMAGE_NAME }}:latest
+
+      - name: Get Composer DAGs bucket
+        id: composer
+        run: |
+          DAGS_BUCKET=$(gcloud composer environments describe ml-pipelines-composer \
+            --location us-central1 \
+            --project ${{ env.PROJECT_ID }} \
+            --format="value(config.dagGcsPrefix)")
+          echo "dags_bucket=$DAGS_BUCKET" >> $GITHUB_OUTPUT
+
+      - name: Sync DAGs to Composer
+        run: |
+          gsutil -m rsync -r -d dags/ ${{ steps.composer.outputs.dags_bucket }}/
