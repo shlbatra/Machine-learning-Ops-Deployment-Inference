@@ -134,6 +134,41 @@ if [ -n "$GKE_CLUSTER" ]; then
         --namespace="$KSA_NAMESPACE" \
         iam.gke.io/gcp-service-account=$SERVICE_ACCOUNT \
         --overwrite
+
+    # --- 5. Grant Airflow SA RBAC to manage pods in composer-user-workloads ---
+    # The Airflow scheduler runs in its own namespace and needs permission to
+    # create/list/delete pods in composer-user-workloads for KubernetesPodOperator.
+    echo ""
+    echo "Configuring RBAC for KubernetesPodOperator..."
+
+    AIRFLOW_NAMESPACE=$(kubectl get namespaces -o name \
+        | sed -n 's|^namespace/||p' \
+        | grep '^composer-' \
+        | grep -v composer-user-workloads \
+        | head -1)
+
+    if [ -n "$AIRFLOW_NAMESPACE" ]; then
+        echo "  Airflow namespace: $AIRFLOW_NAMESPACE"
+
+        kubectl create role pod-manager \
+            --namespace="$KSA_NAMESPACE" \
+            --verb=create,get,list,watch,delete,patch \
+            --resource=pods,pods/log,pods/status,events \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+        kubectl create rolebinding airflow-pod-manager \
+            --namespace="$KSA_NAMESPACE" \
+            --role=pod-manager \
+            --serviceaccount="${AIRFLOW_NAMESPACE}:default" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+        echo "  RBAC configured: ${AIRFLOW_NAMESPACE}:default → pod-manager in $KSA_NAMESPACE"
+    else
+        echo "  WARNING: Could not detect Airflow namespace."
+        echo "  Create RBAC manually after identifying the namespace:"
+        echo ""
+        echo "    kubectl get namespaces | grep composer"
+    fi
 else
     echo "  WARNING: Could not fetch GKE cluster info — Composer environment may still be creating."
     echo "  Re-run this script after the environment is ready, or run these commands manually:"

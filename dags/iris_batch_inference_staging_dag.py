@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.param import Param
-from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from kubernetes.client import models as k8s
 
 PROJECT_ID = "deeplearning-sahil"
@@ -28,6 +28,7 @@ with DAG(
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
+        "image_tag": Param("staging", type="string", description="Docker image tag"),
         "bq_dataset": Param("ml_dataset", type="string"),
         "bq_feature_table": Param("iris_features", type="string"),
         "bq_table_predictions": Param("iris_predictions_staging", type="string",
@@ -39,7 +40,7 @@ with DAG(
         task_id="run_inference_pipeline",
         name="iris-inference-pipeline-staging",
         namespace="composer-user-workloads",
-        image=f"{REGISTRY}/ml-pipelines-kfp-image:staging",
+        image=REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
         cmds=["python", "-m", "ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_inference"],
         arguments=[
             "--project-id", "{{ params.project_id }}",
@@ -49,7 +50,7 @@ with DAG(
             "--bq-table-predictions", "{{ params.bq_table_predictions }}",
         ],
         startup_timeout_seconds=300,
-        resources=k8s.V1ResourceRequirements(
+        container_resources=k8s.V1ResourceRequirements(
             requests={"cpu": "500m", "memory": "1Gi"},
             limits={"cpu": "1", "memory": "2Gi"},
         ),

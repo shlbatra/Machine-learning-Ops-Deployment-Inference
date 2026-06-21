@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.param import Param
-from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from kubernetes.client import models as k8s
 
 PROJECT_ID = "deeplearning-sahil"
@@ -30,6 +30,7 @@ with DAG(
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
+        "image_tag": Param("main", type="string", description="Docker image tag"),
         "bq_dataset": Param("ml_dataset", type="string"),
         "bq_table": Param("iris", type="string"),
         "bq_feature_table": Param("iris_features", type="string"),
@@ -41,7 +42,7 @@ with DAG(
         task_id="run_training_pipeline",
         name="iris-training-pipeline-prod",
         namespace="composer-user-workloads",
-        image=f"{REGISTRY}/ml-pipelines-kfp-image:main",
+        image=REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
         cmds=["python", "-m", "ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_training"],
         arguments=[
             "--project-id", "{{ params.project_id }}",
@@ -49,15 +50,15 @@ with DAG(
             "--pipeline-name", "pipeline-iris-prod",
             "--pipeline-root", f"{BUCKET}/prod/pipeline_root",
             "--model-name", "Iris-Classifier-XGBoost",
-            "--image-name", f"{REGISTRY}/ml-pipelines-kfp-image:main",
-            "--fastapi-image-name", f"{REGISTRY}/fastapi-ml-generic:main",
+            "--image-name", REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
+            "--fastapi-image-name", REGISTRY + "/fastapi-ml-generic:{{ params.image_tag }}",
             "--bq-dataset", "{{ params.bq_dataset }}",
             "--bq-table", "{{ params.bq_table }}",
             "--bq-feature-table", "{{ params.bq_feature_table }}",
             "--service-account", "{{ params.service_account }}",
         ],
         startup_timeout_seconds=300,
-        resources=k8s.V1ResourceRequirements(
+        container_resources=k8s.V1ResourceRequirements(
             requests={"cpu": "500m", "memory": "1Gi"},
             limits={"cpu": "1", "memory": "2Gi"},
         ),

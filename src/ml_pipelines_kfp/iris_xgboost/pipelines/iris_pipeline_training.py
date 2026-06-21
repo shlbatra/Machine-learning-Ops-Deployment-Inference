@@ -21,8 +21,6 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     BQ_FEATURE_TABLE,
     FASTAPI_IMAGE_NAME,
 )
-
-
 def coalesce(*args):
     return next((a for a in args if a is not None), None)
 
