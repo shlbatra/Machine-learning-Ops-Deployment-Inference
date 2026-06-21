@@ -3,7 +3,7 @@ import sys
 import os
 import kfp
 import google.cloud.aiplatform as aip
-from google.oauth2 import service_account
+import google.auth
 import ml_pipelines_kfp.iris_xgboost.constants as _constants
 from ml_pipelines_kfp.iris_xgboost.constants import (
     ENV,
@@ -12,7 +12,6 @@ from ml_pipelines_kfp.iris_xgboost.constants import (
     PIPELINE_ROOT,
     MODEL_NAME,
     IMAGE_NAME,
-    SERVICE_ACCOUNT_PATH,
     PROJECT_ID,
     REGION,
     SERVICE_ACCOUNT,
@@ -114,7 +113,6 @@ if __name__ == "__main__":
     parser.add_argument("--bq-table")
     parser.add_argument("--bq-feature-table")
     parser.add_argument("--service-account")
-    parser.add_argument("--service-account-path")
     cli = parser.parse_args()
 
     # Resolve each param: CLI > env var > constants.py
@@ -130,10 +128,7 @@ if __name__ == "__main__":
     project_id = coalesce(cli.project_id, os.getenv("PROJECT_ID"), PROJECT_ID)
     region = coalesce(cli.region, os.getenv("REGION"), REGION)
     sa_email = coalesce(cli.service_account, os.getenv("SERVICE_ACCOUNT"), SERVICE_ACCOUNT)
-    sa_path = coalesce(cli.service_account_path, os.getenv("SERVICE_ACCOUNT_PATH"), SERVICE_ACCOUNT_PATH)
-
-    credentials = service_account.Credentials.from_service_account_file(
-        filename=sa_path,
+    credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
