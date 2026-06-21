@@ -10,7 +10,7 @@ The repo currently runs training and batch inference as KFP pipelines on Vertex 
 |---|---|---|
 | Scheduling | Manual trigger or cron via external system | Native Airflow `schedule_interval` |
 | Retries & alerting | KFP has limited retry config | Airflow retries, SLA misses, email/Slack alerts |
-| Cross-pipeline dependencies | None — training and inference are independent | DAG sensors: inference waits for training |
+| Cross-pipeline dependencies | None — training and inference are independent | Both on independent schedules; sensors available if needed later |
 | Visibility | Vertex AI console (pipeline-specific) | Airflow UI (all workflows in one place) |
 | Cost | Vertex AI Pipelines pricing per run | Composer environment (fixed) + GKE pod costs |
 | Portability | Locked to Vertex AI | Runs on any K8s cluster |
@@ -40,7 +40,6 @@ Cloud Composer 2 (Airflow on GKE)
   │         → compiles KFP pipeline → submits PipelineJob to Vertex AI
   │
   └── DAG: iris_batch_inference
-      ├── Sensor: wait_for_training     (ExternalTaskSensor, optional)
       └── Task: run_inference_pipeline  (KubernetesPodOperator)
             → runs: python -m ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_inference
             → compiles KFP pipeline → submits PipelineJob to Vertex AI
@@ -74,7 +73,7 @@ The existing `iris_pipeline_training.py` and `iris_pipeline_inference.py` alread
 gcloud composer environments create ml-pipelines-composer \
   --location us-central1 \
   --environment-size small \
-  --image-version composer-2.9.7-airflow-2.9.3 \
+  --image-version composer-2.17.3-airflow-2.10.5 \
   --service-account kfp-mlops@deeplearning-sahil.iam.gserviceaccount.com
 ```
 
@@ -236,7 +235,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
-from airflow.sensors.external_task import ExternalTaskSensor
 from kubernetes.client import models as k8s
 
 # --- Defaults ---
@@ -272,18 +270,6 @@ with DAG(
     },
 ) as dag:
 
-    # Optional: wait for training to finish if it ran today
-    #
-    # wait_for_training = ExternalTaskSensor(
-    #     task_id="wait_for_training",
-    #     external_dag_id="iris_training",
-    #     external_task_id="run_training_pipeline",
-    #     execution_delta=timedelta(hours=2),
-    #     mode="reschedule",
-    #     timeout=3600,
-    #     poke_interval=120,
-    # )
-
     run_inference_pipeline = KubernetesPodOperator(
         task_id="run_inference_pipeline",
         name="iris-inference-pipeline",
@@ -312,8 +298,6 @@ with DAG(
         get_logs=True,
     )
 
-    # If using the sensor:
-    # wait_for_training >> run_inference_pipeline
 ```
 
 ---
@@ -343,7 +327,28 @@ aip.init(project=project_id, location=region, credentials=credentials)
 
 ## 5. CI/CD Integration
 
-### 5a. DAG Sync to Composer
+### 5a. Manual DAG Sync to Composer
+
+For development and testing, sync DAGs manually from your local machine:
+
+```bash
+# Get the Composer DAGs bucket
+DAGS_BUCKET=$(gcloud composer environments describe ml-pipelines-composer \
+    --location us-central1 \
+    --project deeplearning-sahil \
+    --format="value(config.dagGcsPrefix)")
+
+# Sync all DAGs to Composer
+gsutil -m rsync -r dags/ $DAGS_BUCKET/
+
+# Or upload a single DAG
+gsutil cp dags/iris_training_dag.py $DAGS_BUCKET/
+gsutil cp dags/iris_batch_inference_dag.py $DAGS_BUCKET/
+```
+
+After uploading, DAGs appear in the Airflow UI within ~30 seconds (Composer polls the bucket automatically).
+
+### 5b. CI/CD DAG Sync
 
 Add GitHub Actions steps to sync DAGs after Docker image push:
 
@@ -363,7 +368,7 @@ Add GitHub Actions steps to sync DAGs after Docker image push:
           gsutil -m rsync -r -d dags/ ${{ steps.composer.outputs.dags_bucket }}/
 ```
 
-### 5b. Environment Promotion
+### 5c. Environment Promotion
 
 Image tags are deterministic from `ENV` — the DAG computes the right tag (`main` for prod, `staging` for staging) without any Airflow variable update. CI just needs to push images with those well-known tags.
 
@@ -382,16 +387,6 @@ Image tags are deterministic from `ENV` — the DAG computes the right tag (`mai
 - **SLA misses**: Add `sla=timedelta(hours=1)` to the KPO task if the pipeline should complete within a time bound
 - **Task retries**: 2 retries with 5-minute delay; covers transient Vertex AI submission failures
 
-### Cloud Monitoring
-
-```bash
-gcloud alpha monitoring policies create \
-  --display-name="Airflow DAG Failure" \
-  --condition-display-name="DAG run failed" \
-  --condition-filter='resource.type="cloud_composer_environment" AND metric.type="composer.googleapis.com/environment/dag_processing/total_parse_time"' \
-  --notification-channels=<CHANNEL_ID>
-```
-
 ### Logging
 
 - KPO pods write to stdout → Cloud Logging (automatic on GKE)
@@ -409,73 +404,25 @@ The KPO pod only compiles the pipeline YAML and submits it to Vertex AI — the 
 | run_training_pipeline | 500m / 1 | 1Gi / 2Gi | ~30s (compile + submit) |
 | run_inference_pipeline | 500m / 1 | 1Gi / 2Gi | ~30s (compile + submit) |
 
-### GPU Training (future)
+### GPU for pipeline steps
 
-If training moves from Vertex AI into the KPO pod directly, add `node_selector` and `tolerations`:
-
-```python
-KubernetesPodOperator(
-    ...
-    node_selector={"cloud.google.com/gke-accelerator": "nvidia-tesla-t4"},
-    tolerations=[k8s.V1Toleration(key="nvidia.com/gpu", operator="Exists", effect="NoSchedule")],
-    resources=k8s.V1ResourceRequirements(
-        limits={"nvidia.com/gpu": "1", "cpu": "4", "memory": "16Gi"},
-    ),
-)
-```
+GPU resources are configured on the Vertex AI pipeline components, not on the KPO pod. See `docs/gpu_vertex_pipelines.md` for the full plan.
 
 ---
 
-## 8. Consideration: Fire-and-Forget vs Wait-for-Completion
+## 8. Wait-for-Completion
 
-The current pipeline scripts call `job.submit()` which is **fire-and-forget** — the pod exits after Vertex AI accepts the pipeline submission. Airflow marks the task as "success" even though the actual training/inference is still running on Vertex AI.
+Both pipeline scripts call `job.submit()` followed by `job.wait()` so the KPO pod blocks until the Vertex AI pipeline finishes. This means:
 
-### Option A: Fire-and-forget (Recommended to start)
-
-- Pod submits to Vertex AI, exits immediately
-- Airflow task duration: ~30 seconds
-- Monitor pipeline completion in Vertex AI console
-- Simple, no code changes
-
-### Option B: Wait for completion
-
-Modify the pipeline scripts to call `job.submit()` followed by `job.wait()`:
+- Airflow task duration matches actual pipeline duration (10-20 min)
+- Airflow accurately reflects pipeline success/failure
+- Airflow is the single source of truth for pipeline status
 
 ```python
-# Small change to __main__ block:
+# Both iris_pipeline_training.py and iris_pipeline_inference.py:
 job.submit(service_account=sa_email)
 job.wait()  # blocks until Vertex AI pipeline completes or fails
 ```
-
-- Airflow task duration: matches Vertex AI pipeline duration (10-20 min)
-- Airflow accurately reflects pipeline success/failure
-- Enables reliable `ExternalTaskSensor` for inference-after-training
-- Requires adding `job.wait()` to both pipeline scripts
-
-### Option C: Airflow sensor for Vertex AI
-
-Use `VertexAIPipelineJobSensor` from the `apache-airflow-providers-google` package to poll Vertex AI pipeline status as a separate Airflow task:
-
-```python
-from airflow.providers.google.cloud.sensors.vertex_ai.pipeline_job import VertexAIPipelineJobSensor
-
-submit_pipeline = KubernetesPodOperator(...)
-
-wait_for_pipeline = VertexAIPipelineJobSensor(
-    task_id="wait_for_pipeline",
-    project_id=PROJECT_ID,
-    region=REGION,
-    pipeline_job_id="{{ ti.xcom_pull(task_ids='submit_pipeline')['pipeline_job_id'] }}",
-    poke_interval=60,
-    timeout=3600,
-)
-
-submit_pipeline >> wait_for_pipeline
-```
-
-Requires the submit task to push the pipeline job ID via XCom.
-
-**Recommendation**: Start with Option A. Move to Option B (`job.wait()`) when you want Airflow to be the single source of truth for pipeline status.
 
 ---
 

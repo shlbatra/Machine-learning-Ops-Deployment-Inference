@@ -159,3 +159,4 @@ if __name__ == "__main__":
         credentials=credentials,
     )
     job.submit(service_account=sa_email)
+    job.wait()
