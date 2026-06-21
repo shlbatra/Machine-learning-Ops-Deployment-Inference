@@ -142,7 +142,8 @@ if [ -n "$GKE_CLUSTER" ]; then
     echo "Configuring RBAC for KubernetesPodOperator..."
 
     AIRFLOW_NAMESPACE=$(kubectl get namespaces -o name \
-        | grep -oP '(?<=namespace/)composer-.*' \
+        | sed -n 's|^namespace/||p' \
+        | grep '^composer-' \
         | grep -v composer-user-workloads \
         | head -1)
 
