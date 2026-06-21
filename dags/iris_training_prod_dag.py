@@ -1,11 +1,9 @@
-import os
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 from kubernetes.client import models as k8s
 
-ENV = os.getenv("ENVIRONMENT", "staging")
 PROJECT_ID = "deeplearning-sahil"
 REGION = "us-central1"
 BUCKET = "gs://sb-vertex"
@@ -22,15 +20,14 @@ default_args = {
 }
 
 with DAG(
-    dag_id=f"iris_training_{ENV}",
+    dag_id="iris_training_prod",
     default_args=default_args,
-    description="Train Iris classifier, register and deploy best model",
-    schedule_interval="0 6 * * 1" if ENV == "prod" else None,
+    description="Train Iris classifier (prod)",
+    schedule_interval="0 6 * * 1",
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=["ml", "training", "iris"],
+    tags=["ml", "training", "iris", "prod"],
     params={
-        "environment": Param("staging", enum=["staging", "prod"], description="Target environment"),
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
         "bq_dataset": Param("ml_dataset", type="string"),
@@ -42,36 +39,25 @@ with DAG(
 
     run_training_pipeline = KubernetesPodOperator(
         task_id="run_training_pipeline",
-        name="iris-training-pipeline",
+        name="iris-training-pipeline-prod",
         namespace="composer-user-workloads",
-        image=(
-            f"{REGISTRY}/ml-pipelines-kfp-image:"
-            "{{ 'main' if params.environment == 'prod' else 'staging' }}"
-        ),
+        image=f"{REGISTRY}/ml-pipelines-kfp-image:main",
         cmds=["python", "-m", "ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_training"],
         arguments=[
             "--project-id", "{{ params.project_id }}",
             "--region", "{{ params.region }}",
-            "--pipeline-name",
-            "{{ 'pipeline-iris-prod' if params.environment == 'prod' else 'pipeline-iris-staging' }}",
-            "--pipeline-root",
-            "{{ params.environment == 'prod' and '%s/prod/pipeline_root' % '%s' or '%s/staging/pipeline_root' % '%s' }}"
-                .replace("%s", BUCKET),
-            "--model-name",
-            "{{ 'Iris-Classifier-XGBoost' if params.environment == 'prod' else 'Iris-Classifier-XGBoost-staging' }}",
-            "--image-name",
-            f"{REGISTRY}/ml-pipelines-kfp-image:"
-            "{{ 'main' if params.environment == 'prod' else 'staging' }}",
-            "--fastapi-image-name",
-            f"{REGISTRY}/fastapi-ml-generic:"
-            "{{ 'main' if params.environment == 'prod' else 'staging' }}",
+            "--pipeline-name", "pipeline-iris-prod",
+            "--pipeline-root", f"{BUCKET}/prod/pipeline_root",
+            "--model-name", "Iris-Classifier-XGBoost",
+            "--image-name", f"{REGISTRY}/ml-pipelines-kfp-image:main",
+            "--fastapi-image-name", f"{REGISTRY}/fastapi-ml-generic:main",
             "--bq-dataset", "{{ params.bq_dataset }}",
             "--bq-table", "{{ params.bq_table }}",
             "--bq-feature-table", "{{ params.bq_feature_table }}",
             "--service-account", "{{ params.service_account }}",
         ],
         env_vars=[
-            k8s.V1EnvVar(name="ENVIRONMENT", value="{{ params.environment }}"),
+            k8s.V1EnvVar(name="ENVIRONMENT", value="prod"),
         ],
         startup_timeout_seconds=300,
         resources=k8s.V1ResourceRequirements(
