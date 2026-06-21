@@ -93,3 +93,4 @@ if __name__ == "__main__":
         credentials=credentials,
     )
     job.submit(service_account=SERVICE_ACCOUNT)
+    job.wait()
