@@ -28,6 +28,7 @@ with DAG(
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
+        "image_tag": Param("main", type="string", description="Docker image tag"),
         "bq_dataset": Param("ml_dataset", type="string"),
         "bq_feature_table": Param("iris_features", type="string"),
         "bq_table_predictions": Param("iris_predictions", type="string",
@@ -39,7 +40,7 @@ with DAG(
         task_id="run_inference_pipeline",
         name="iris-inference-pipeline-prod",
         namespace="composer-user-workloads",
-        image=f"{REGISTRY}/ml-pipelines-kfp-image:main",
+        image=REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
         cmds=["python", "-m", "ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_inference"],
         arguments=[
             "--project-id", "{{ params.project_id }}",

@@ -30,6 +30,7 @@ with DAG(
     params={
         "project_id": Param(PROJECT_ID, type="string", description="GCP project ID"),
         "region": Param(REGION, type="string", description="GCP region"),
+        "image_tag": Param("staging", type="string", description="Docker image tag"),
         "bq_dataset": Param("ml_dataset", type="string"),
         "bq_table": Param("iris", type="string"),
         "bq_feature_table": Param("iris_features", type="string"),
@@ -41,7 +42,7 @@ with DAG(
         task_id="run_training_pipeline",
         name="iris-training-pipeline-staging",
         namespace="composer-user-workloads",
-        image=f"{REGISTRY}/ml-pipelines-kfp-image:staging",
+        image=REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
         cmds=["python", "-m", "ml_pipelines_kfp.iris_xgboost.pipelines.iris_pipeline_training"],
         arguments=[
             "--project-id", "{{ params.project_id }}",
@@ -49,8 +50,8 @@ with DAG(
             "--pipeline-name", "pipeline-iris-staging",
             "--pipeline-root", f"{BUCKET}/staging/pipeline_root",
             "--model-name", "Iris-Classifier-XGBoost-staging",
-            "--image-name", f"{REGISTRY}/ml-pipelines-kfp-image:staging",
-            "--fastapi-image-name", f"{REGISTRY}/fastapi-ml-generic:staging",
+            "--image-name", REGISTRY + "/ml-pipelines-kfp-image:{{ params.image_tag }}",
+            "--fastapi-image-name", REGISTRY + "/fastapi-ml-generic:{{ params.image_tag }}",
             "--bq-dataset", "{{ params.bq_dataset }}",
             "--bq-table", "{{ params.bq_table }}",
             "--bq-feature-table", "{{ params.bq_feature_table }}",

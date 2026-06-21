@@ -153,7 +153,7 @@ if [ -n "$GKE_CLUSTER" ]; then
         kubectl create role pod-manager \
             --namespace="$KSA_NAMESPACE" \
             --verb=create,get,list,watch,delete,patch \
-            --resource=pods,pods/log,pods/status \
+            --resource=pods,pods/log,pods/status,events \
             --dry-run=client -o yaml | kubectl apply -f -
 
         kubectl create rolebinding airflow-pod-manager \
