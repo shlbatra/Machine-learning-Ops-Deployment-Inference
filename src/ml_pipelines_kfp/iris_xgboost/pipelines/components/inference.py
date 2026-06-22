@@ -47,7 +47,7 @@ def inference_model(
     predictions_table_id = f"{project_id}.{bq_dataset}.{bq_table_predictions}"
 
     job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE"
+        write_disposition="WRITE_APPEND"
     )
 
     job = client.load_table_from_dataframe(
