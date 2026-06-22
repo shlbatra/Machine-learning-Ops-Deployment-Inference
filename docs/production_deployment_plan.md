@@ -31,22 +31,7 @@ In production, everything runs on automated schedules with no manual interventio
 
 ## Steps to Go Live
 
-### Step 1: Merge All Open PRs to `main`
-
-Merge in order (each builds on the previous):
-
-| PR | Branch | What it does |
-|----|--------|-------------|
-| #44 | `fix/kpo-import-path` | KPO import fix, RBAC, container_resources, events, image_tag param, grep fix |
-| #45 | `fix/sanitize-branch-slash` | Sanitize `/` → `-` in BUILD_BRANCH for Docker tags |
-| #46 | `fix/bq-inference-append` | Change BQ inference write disposition to WRITE_APPEND |
-| #47 | `docs/update-readme` | README update with Composer docs |
-
-After merging, CI will:
-- Build fresh `main`-tagged images (KFP, FastAPI, Beam) with all fixes
-- Sync latest DAGs (with `image_tag` param, correct imports) to Composer
-
-### Step 2: Verify `main` Images Exist in Artifact Registry
+### Step 1: Verify `main` Images Exist in Artifact Registry
 
 ```bash
 # Confirm all 3 images have the main tag after CI completes
@@ -58,7 +43,7 @@ gcloud artifacts docker images list \
 
 Expected: `ml-pipelines-kfp-image:main`, `fastapi-ml-generic:main`, `dataflow-beam:main`
 
-### Step 3: Verify Prod DAGs Are Active in Airflow
+### Step 2: Verify Prod DAGs Are Active in Airflow
 
 Open the Airflow UI:
 
@@ -72,9 +57,9 @@ Check:
 - `iris_training_prod` — schedule `0 6 * * *`, unpaused
 - `iris_batch_inference_prod` — schedule `0 8 * * *`, unpaused
 
-Both DAGs are currently **paused by default** (Airflow pauses new DAGs). Unpause them only after Step 4.
+Both DAGs are currently **paused by default** (Airflow pauses new DAGs). Unpause them only after Step 3.
 
-### Step 4: Manual Prod Validation Run
+### Step 3: Manual Prod Validation Run
 
 Before enabling schedules, trigger each prod DAG once manually to validate:
 
@@ -98,25 +83,11 @@ Verify:
 - [ ] Inference DAG completes successfully
 - [ ] `ml_dataset.iris_predictions` table has new rows with current `prediction_timestamp`
 
-### Step 5: Unpause Prod DAGs
+### Step 4: Unpause Prod DAGs
 
-Once manual runs succeed, enable the automated schedules:
+Once manual runs succeed, enable the automated schedules in the Airflow UI by toggling the pause switch for `iris_training_prod` and `iris_batch_inference_prod`.
 
-**Option A — Airflow UI:**
-Toggle the pause switch for `iris_training_prod` and `iris_batch_inference_prod`
-
-**Option B — CLI:**
-```bash
-gcloud composer environments run ml-pipelines-composer \
-  --location us-central1 \
-  dags unpause -- iris_training_prod
-
-gcloud composer environments run ml-pipelines-composer \
-  --location us-central1 \
-  dags unpause -- iris_batch_inference_prod
-```
-
-### Step 6: Deploy Prod Dataflow Streaming Pipelines
+### Step 5: Deploy Prod Dataflow Streaming Pipelines
 
 Deploy the two long-running Dataflow jobs for prod:
 
@@ -134,7 +105,7 @@ Verify:
 - [ ] Check `ml_dataset.iris_features` has new rows (feature pipeline)
 - [ ] Check `ml_dataset.iris_predictions_streaming` has new rows (inference pipeline)
 
-### Step 7: Pause Staging DAGs (Optional)
+### Step 6: Pause Staging DAGs (Optional)
 
 If staging DAGs aren't needed for daily runs, pause them to avoid accidental triggers:
 
