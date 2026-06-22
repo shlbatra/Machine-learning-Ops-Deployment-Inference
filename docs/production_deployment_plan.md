@@ -136,6 +136,7 @@ Verify:
 -- Latest batch predictions
 SELECT prediction_timestamp, COUNT(*) as row_count
 FROM `deeplearning-sahil.ml_dataset.iris_predictions`
+WHERE source = 'batch_input'
 GROUP BY prediction_timestamp
 ORDER BY prediction_timestamp DESC
 LIMIT 5;
