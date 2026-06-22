@@ -25,7 +25,7 @@ else:  # staging
     MODEL_NAME = "Iris-Classifier-XGBoost-staging"
     BQ_TABLE_PREDICTIONS = "iris_predictions_staging"
     BQ_TABLE_PREDICTIONS_STREAMING = "iris_predictions_streaming_staging"
-    _DEFAULT_IMAGE_TAG = os.getenv("BUILD_BRANCH", "staging")
+    _DEFAULT_IMAGE_TAG = os.getenv("BUILD_BRANCH", "staging").replace("/", "-")
 
 IMAGE_NAME = os.getenv(
     "PIPELINE_BASE_IMAGE",
