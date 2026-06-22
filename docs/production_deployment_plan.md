@@ -105,22 +105,6 @@ Verify:
 - [ ] Check `ml_dataset.iris_features` has new rows (feature pipeline)
 - [ ] Check `ml_dataset.iris_predictions_streaming` has new rows (inference pipeline)
 
-### Step 6: Pause Staging DAGs (Optional)
-
-If staging DAGs aren't needed for daily runs, pause them to avoid accidental triggers:
-
-```bash
-gcloud composer environments run ml-pipelines-composer \
-  --location us-central1 \
-  dags pause -- iris_training_staging
-
-gcloud composer environments run ml-pipelines-composer \
-  --location us-central1 \
-  dags pause -- iris_batch_inference_staging
-```
-
-They remain available for manual testing anytime — just trigger from the UI.
-
 ---
 
 ## Production Schedule Summary
