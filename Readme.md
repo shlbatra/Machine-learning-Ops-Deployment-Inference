@@ -388,10 +388,6 @@ Cloud Composer 2 (`composer-2.17.3-airflow-2.10.5`) orchestrates Vertex AI pipel
 - **Workload Identity**: KPO pods authenticate as `kfp-mlops@` GCP service account via the GKE metadata server — no key files needed
 - **`google.auth.default()`**: Pipeline scripts use Application Default Credentials, which automatically picks up Workload Identity credentials in GKE or service account keys in CI
 
-### RBAC
-
-The Airflow scheduler runs in its own namespace and needs permission to manage pods and watch events in `composer-user-workloads`. The setup script creates a `pod-manager` Role with access to `pods`, `pods/log`, `pods/status`, and `events`.
-
 ## Configuration
 
 Configuration is split across two files:
