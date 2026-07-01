@@ -114,7 +114,7 @@
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(dataflow_job_user_counter{metric_name=\"FetchFeaturesFromOnlineStore-fetch_success\"}[5m]))",
+          "expr": "sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_success[5m]))",
           "legendFormat": "feature reads/sec"
         }
       ],
@@ -134,7 +134,7 @@
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(dataflow_job_user_counter{metric_name=\"WriteToOnlineStore-rows_written\"}[5m]))",
+          "expr": "sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_write_success[5m]))",
           "legendFormat": "feature writes/sec"
         }
       ],
@@ -154,7 +154,7 @@
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(fastapi_fastapi_predictions_total[5m]))",
+          "expr": "sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_success[5m]))",
           "legendFormat": "predictions/sec"
         }
       ],

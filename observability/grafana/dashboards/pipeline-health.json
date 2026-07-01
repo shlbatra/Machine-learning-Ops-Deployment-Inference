@@ -7,177 +7,208 @@
   "links": [],
   "panels": [
     {
-      "title": "Predictions / sec",
+      "title": "Prediction Success Count",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(fastapi_fastapi_predictions_total[1m]))",
-          "legendFormat": "predictions/sec"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_success)",
+          "legendFormat": "{{job_name}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "short",
           "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Predictions by Status",
+      "title": "Parse Success Count",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum by (status) (rate(fastapi_fastapi_predictions_total[1m]))",
-          "legendFormat": "{{status}}"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_parse_success)",
+          "legendFormat": "{{job_name}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "short",
           "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Batch Size Distribution",
-      "type": "histogram",
+      "title": "Batch Size (mean)",
+      "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(fastapi_fastapi_predict_batch_size_bucket[5m])) by (le)",
-          "legendFormat": "batch size",
-          "format": "heatmap"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_batch_size_mean)",
+          "legendFormat": "{{job_name}}"
         }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
     },
     {
-      "title": "Prediction Latency (p50 / p95 / p99)",
+      "title": "Prediction Latency (mean / max)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(fastapi_fastapi_predict_duration_bucket[5m])) by (le))",
-          "legendFormat": "p50"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_latency_ms_mean)",
+          "legendFormat": "{{job_name}} mean"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(fastapi_fastapi_predict_duration_bucket[5m])) by (le))",
-          "legendFormat": "p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(fastapi_fastapi_predict_duration_bucket[5m])) by (le))",
-          "legendFormat": "p99"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_latency_ms_max)",
+          "legendFormat": "{{job_name}} max"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "ms",
           "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "HTTP Request Latency (p50 / p95 / p99)",
+      "title": "Feature Fetch Latency (mean / max)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(fastapi_http_server_duration_bucket[5m])) by (le))",
-          "legendFormat": "p50"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_latency_ms_mean)",
+          "legendFormat": "{{job_name}} mean"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(fastapi_http_server_duration_bucket[5m])) by (le))",
-          "legendFormat": "p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(fastapi_http_server_duration_bucket[5m])) by (le))",
-          "legendFormat": "p99"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_latency_ms_max)",
+          "legendFormat": "{{job_name}} max"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "ms",
           "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Error Rate (%)",
+      "title": "Fetch Success vs Failure",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(fastapi_fastapi_predictions_total{status=\"error\"}[5m])) / sum(rate(fastapi_fastapi_predictions_total[5m])) * 100",
-          "legendFormat": "error %"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_success)",
+          "legendFormat": "{{job_name}} success"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_failure)",
+          "legendFormat": "{{job_name}} failure"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_retry)",
+          "legendFormat": "{{job_name}} retry"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "custom": { "drawStyle": "line", "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
-            ]
-          }
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "HTTP Status Codes / sec",
+      "title": "Cloud Run Request Latency (p50 / p95 / p99)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum by (http_status_code) (rate(fastapi_http_server_duration_count[1m]))",
-          "legendFormat": "{{http_status_code}}"
+          "expr": "histogram_quantile(0.50, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
-          "custom": { "drawStyle": "bars", "fillOpacity": 50 }
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Model Load Duration",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 24 },
+      "title": "Rows Written / Mapped",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "histogram_quantile(1.0, sum(rate(fastapi_fastapi_model_load_duration_bucket[1h])) by (le))",
-          "legendFormat": "load time"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_rows_written)",
+          "legendFormat": "{{job_name}} written"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_rows_mapped)",
+          "legendFormat": "{{job_name}} mapped"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s" },
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cloud Run Instance Count",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (service_name) (stackdriver_cloud_run_revision_run_googleapis_com_container_instance_count)",
+          "legendFormat": "{{service_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
         "overrides": []
       }
     }
   ],
-  "refresh": "10s",
+  "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["ml", "inference", "fastapi"],
+  "tags": ["ml", "inference", "pipeline"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "title": "Pipeline Health",

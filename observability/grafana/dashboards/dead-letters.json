@@ -7,14 +7,23 @@
   "links": [],
   "panels": [
     {
-      "title": "Dead Letters / min (by stage)",
+      "title": "Error / Failure Metrics (all)",
+      "description": "All Beam custom error and failure counters across pipelines.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum by (metric_name) (rate(dataflow_job_user_counter{metric_name=~\".*error|.*failure|.*missing.*\"}[1m])) * 60",
-          "legendFormat": "{{metric_name}}"
+          "expr": "stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_failure",
+          "legendFormat": "fetch_failure ({{job_name}})"
+        },
+        {
+          "expr": "stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_retry",
+          "legendFormat": "fetch_retry ({{job_name}})"
+        },
+        {
+          "expr": "stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_retry",
+          "legendFormat": "prediction_retry ({{job_name}})"
         }
       ],
       "fieldConfig": {
@@ -26,92 +35,73 @@
       }
     },
     {
-      "title": "Error Breakdown (by type)",
-      "type": "piechart",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "targets": [
-        {
-          "expr": "sum by (metric_name) (increase(dataflow_job_user_counter{metric_name=~\".*error|.*failure|.*missing.*\"}[1h]))",
-          "legendFormat": "{{metric_name}}"
-        }
-      ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
-    },
-    {
-      "title": "Parse Errors / min",
+      "title": "Parse Success vs Fetch Success vs Prediction Success",
+      "description": "Compare counts across pipeline stages to spot where messages are dropped.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(dataflow_job_user_counter{metric_name=~\"ParsePubSubMessage-parse_error|ParsePubSubMessage-validation_error|ParsePubSubMessage-missing_entity_id\"}[1m])) * 60",
-          "legendFormat": "parse errors/min"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_parse_success)",
+          "legendFormat": "parse_success ({{job_name}})"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_success)",
+          "legendFormat": "fetch_success ({{job_name}})"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_success)",
+          "legendFormat": "prediction_success ({{job_name}})"
+        },
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_custom_googleapis_com_dataflow_rows_written)",
+          "legendFormat": "rows_written ({{job_name}})"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "drawStyle": "line", "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 10 }
-            ]
-          }
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Feature Fetch Failures / min",
+      "title": "BQ Streaming Insert Rows",
+      "description": "Total rows inserted into BigQuery via streaming. Drops here indicate write failures.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(dataflow_job_user_counter{metric_name=~\"FetchFeaturesFromOnlineStore-fetch_failure|FetchFeaturesFromOnlineStore-fetch_missing_features\"}[1m])) * 60",
-          "legendFormat": "fetch failures/min"
+          "expr": "stackdriver_bigquery_project_bigquery_googleapis_com_storage_insertall_inserted_rows",
+          "legendFormat": "BQ rows inserted"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "drawStyle": "line", "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 10 }
-            ]
-          }
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
     },
     {
-      "title": "Prediction Failures / min",
+      "title": "Dataflow Worker Utilization",
+      "description": "Worker utilization — low utilization with high error counts suggests the pipeline is spending time on retries.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "sum(rate(dataflow_job_user_counter{metric_name=\"BatchCallFastAPIService-prediction_error\"}[1m])) * 60",
-          "legendFormat": "prediction failures/min"
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_dataflow_googleapis_com_job_aggregated_worker_utilization)",
+          "legendFormat": "{{job_name}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": { "drawStyle": "line", "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 5 }
-            ]
-          }
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
       }
@@ -121,7 +111,7 @@
   "schemaVersion": 39,
   "tags": ["ml", "errors", "dead-letters"],
   "templating": { "list": [] },
-  "time": { "from": "now-3h", "to": "now" },
+  "time": { "from": "now-1h", "to": "now" },
   "title": "Dead Letters & Errors",
   "uid": "dead-letters"
 }
