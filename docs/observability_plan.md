@@ -702,16 +702,24 @@ services:
       - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
 
   # Bridge ALL GCP metrics into Prometheus (production monitoring path)
+  # NOTE: v0.19+ requires CLI flags, not env vars for metric prefixes
   stackdriver-exporter:
     image: prometheuscommunity/stackdriver-exporter:latest
+    command:
+      - --google.project-ids=${GCP_PROJECT_ID:-deeplearning-sahil}
+      - --monitoring.metrics-prefixes=dataflow.googleapis.com/job
+      - --monitoring.metrics-prefixes=custom.googleapis.com/dataflow
+      - --monitoring.metrics-prefixes=workload.googleapis.com
+      - --monitoring.metrics-prefixes=bigtable.googleapis.com/server
+      - --monitoring.metrics-prefixes=pubsub.googleapis.com
+      - --monitoring.metrics-prefixes=run.googleapis.com
+      - --monitoring.metrics-prefixes=bigquery.googleapis.com/storage
+    volumes:
+      - $HOME/.config/gcloud/application_default_credentials.json:/credentials/adc.json:ro
     environment:
-      - GOOGLE_APPLICATION_CREDENTIALS=/credentials/sa.json
-      - STACKDRIVER_EXPORTER_GOOGLE_PROJECT_ID=deeplearning-sahil
-      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,custom.googleapis.com/dataflow,workload.googleapis.com,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com,bigquery.googleapis.com/storage
+      - GOOGLE_APPLICATION_CREDENTIALS=/credentials/adc.json
     ports:
       - "9255:9255"
-    volumes:
-      - ./deeplearning-sahil-e50332de6687.json:/credentials/sa.json
 ```
 
 > **Prefix additions vs. original:**
