@@ -143,15 +143,15 @@
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_request_latencies_bucket[5m])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_request_latencies_bucket[5m])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_latencies_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_request_latencies_bucket[5m])) by (le))",
           "legendFormat": "p99"
         }
       ],
