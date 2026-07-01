@@ -82,7 +82,7 @@ scripts/
 docs/                                   # Design docs and plans
 observability/                          # Prometheus + Grafana monitoring stack
 ├── otel-collector.yml                 # OTel Collector: receive OTLP, export to Prometheus (local dev only)
-├── prometheus.yml                     # Scrape config (stackdriver-exporter + OTel Collector)
+├── prometheus.yml                     # Scrape config (stackdriver-exporter)
 ├── alert_rules.yml                    # Alert rules (error rates, latency, cost anomalies)
 ├── alertmanager.yml                   # Notification routing (Slack, PagerDuty)
 ├── docker-compose.observability.yml   # Observability stack (stackdriver-exporter bridges Cloud Monitoring)
@@ -380,17 +380,20 @@ docker compose -f docker-compose.observability.yml down
 
 ### Alert Rules
 
-Alerts are defined in `observability/alert_rules.yml` and loaded by Prometheus:
-- **HighPredictionErrorRate** — error rate > 5% for 5 minutes
-- **NoPredictionsFlowing** — zero predictions for 10 minutes
-- **HighPredictionLatency** — p95 latency > 1 second
-- **FeatureFetchFailureSpike** — feature fetch failures > 10/5min
-- **HighParseErrorRate** — parse error rate > 10%
-- **PredictionBatchFailureSpike** — batch prediction failures spiking
-- **DataflowWorkerCountSpike** — vCPU count > 2x 7-day average
-- **HighPubSubBacklog** — undelivered messages > 10k
+Alerts are defined in `observability/alert_rules.yml` and loaded by Prometheus. All rules use `stackdriver_*` metrics from the stackdriver-exporter:
 
-Alertmanager routing is configured in `observability/alertmanager.yml` (default receiver has no notification targets — configure Slack/PagerDuty webhooks for production).
+| Alert | Severity | Condition |
+|---|---|---|
+| `HighCloudRunErrorRate` | critical | Cloud Run 5xx rate > 5% for 5 min |
+| `NoPredictionsFlowing` | critical | Zero `prediction_success` for 10 min |
+| `HighPredictionLatency` | warning | Mean prediction latency > 1 second for 5 min |
+| `FeatureFetchFailureSpike` | warning | `fetch_failure` + `fetch_retry` rate > 10/5min |
+| `PredictionRetrySpike` | critical | `prediction_retry` rate > 5/5min |
+| `ParseToFetchDropoff` | warning | > 10% of parsed messages not reaching fetch stage |
+| `DataflowWorkerCountSpike` | warning | vCPU count > 2x 7-day average for 30 min |
+| `HighPubSubBacklog` | warning | Undelivered messages > 10k for 15 min |
+
+View alert status at http://localhost:9090/alerts (inactive/pending/firing). Alertmanager routing is configured in `observability/alertmanager.yml` (default receiver has no notification targets — configure Slack/PagerDuty webhooks for production).
 
 ## Development
 
