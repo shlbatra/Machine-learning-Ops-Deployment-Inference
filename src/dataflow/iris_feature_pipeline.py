@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from dataflow.models.iris_schema import PubSubIrisMessage
 from dataflow.utils.online_store_writer import WriteToOnlineStore
+from dataflow.utils.dead_letter import DEAD_LETTER_TAG, build_dead_letter, write_dead_letters
 from ml_pipelines_kfp.log import get_logger
 
 logger = get_logger(__name__)
@@ -67,9 +68,17 @@ class ParsePubSubMessage(beam.DoFn):
         except ValidationError as e:
             self.validation_error.inc()
             logger.warning(f"Invalid message: {e}")
+            yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                pipeline="feature", stage="parse", error_type="validation",
+                error_message=e, original_message=element,
+            ))
         except (json.JSONDecodeError, AttributeError) as e:
             self.parse_error.inc()
             logger.error(f"Error parsing message: {e}, message: {element}")
+            yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                pipeline="feature", stage="parse", error_type="json_decode",
+                error_message=e, original_message=element,
+            ))
 
 
 class MapToFeatureRow(beam.DoFn):
@@ -128,6 +137,11 @@ def run_pipeline(argv=None):
         help="Feature View ID (default: iris_features)",
     )
     parser.add_argument(
+        "--dead_letter_table",
+        default=None,
+        help="BigQuery dead letter table (PROJECT:DATASET.TABLE). If unset, dead letters are logged only.",
+    )
+    parser.add_argument(
         "--no_wait",
         action="store_true",
         help="Submit the job and exit without waiting for it to finish",
@@ -145,10 +159,23 @@ def run_pipeline(argv=None):
 
     p = beam.Pipeline(options=pipeline_options)
 
-    feature_rows = (
+    parse_results = (
         p
         | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
-        | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
+        | "Parse JSON" >> beam.ParDo(ParsePubSubMessage()).with_outputs(
+            DEAD_LETTER_TAG, main="parsed",
+        )
+    )
+
+    if known_args.dead_letter_table:
+        write_dead_letters(
+            parse_results[DEAD_LETTER_TAG],
+            table=known_args.dead_letter_table,
+            label_prefix="Parse",
+        )
+
+    feature_rows = (
+        parse_results.parsed
         | "Map to Feature Row" >> beam.ParDo(MapToFeatureRow())
     )
 
