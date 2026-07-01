@@ -41,37 +41,98 @@ Even though the backend is Prometheus, we instrument with **OpenTelemetry SDK** 
 
 ### Decision
 
-Instrument with **OpenTelemetry SDK + auto-instrumentation**. Export metrics to **Prometheus** via the **OTel Collector's Prometheus exporter**. Visualize with **Grafana**. Re-evaluate SigNoz when Beam Python SDK gets OTel tracing support.
+Instrument with **OpenTelemetry SDK + auto-instrumentation**. Export metrics to **Google Cloud Monitoring** in production (via `CloudMonitoringMetricsExporter`), bridge into **Prometheus** via **stackdriver-exporter**. Visualize with **Grafana**. OTel Collector kept for local-only dev. Re-evaluate SigNoz when Beam Python SDK gets OTel tracing support.
 
 ---
 
 ## Architecture Overview
 
+### Production Architecture (Cloud Run + Dataflow → Cloud Monitoring → local Grafana)
+
+All production metrics flow through **one bridge**: Google Cloud Monitoring → stackdriver-exporter → Prometheus → Grafana. This avoids network boundary issues (Cloud Run can't reach a local/private OTel Collector).
+
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Pub/Sub     │────▶│  Dataflow Jobs   │────▶│  BigQuery    │
-│  (messages)  │     │  (Beam workers)  │     │  (sink)      │
-└─────────────┘     └───────┬──────────┘     └─────────────┘
-                            │
-                    Beam Metrics → Cloud Monitoring
-                            │
-                            ▼
-┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  FastAPI     │────▶│  OTel Collector  │────▶│  Prometheus      │────▶│  Grafana     │
-│  (OTel SDK) │     │  (receive +      │     │  (scrape + store)│     │  (dashboards)│
-└─────────────┘     │   export)        │     └───────┬──────────┘     └─────────────┘
-                    └──────┬───────────┘             │
-                           │                         ▼
-                    stackdriver-exporter      ┌──────────────────┐
-                    (GCP metrics bridge)      │  Alertmanager    │
-                                              │  (Slack/PD)      │
-                                              └──────────────────┘
+                     ┌──────────────────────────────────────────────────┐
+                     │               Google Cloud                       │
+                     │                                                  │
+  ┌───────────┐      │  ┌──────────────┐          ┌───────────┐        │
+  │ Pub/Sub   │─────────▶ Dataflow     │─────────▶│ BigQuery  │        │
+  └───────────┘      │  │ (Beam)       │          └───────────┘        │
+                     │  └──────┬───────┘                                │
+                     │         │ Beam Metrics                           │
+                     │         │ (auto-exported)                        │
+                     │         │                    ┌────────────────┐  │
+                     │  ┌──────────────┐            │                │  │
+                     │  │ FastAPI      │            │     Cloud      │  │
+                     │  │ (Cloud Run)  │            │   Monitoring   │  │
+                     │  └──────┬───────┘            │                │  │
+                     │         │ CloudMonitoring     │  ┌──────────┐ │  │
+                     │         │ MetricsExporter ───▶│  │workload/ │ │  │
+                     │         │                    │  │custom/df │ │  │
+                     │   Beam system metrics ──────▶│  │dataflow/ │ │  │
+                     │   GCP platform metrics ─────▶│  │run/pubsub│ │  │
+                     │   (auto-collected)           │  │bigtable/ │ │  │
+                     │                              │  └──────────┘ │  │
+                     │                              └───────┬────────┘  │
+                     └──────────────────────────────────────┼───────────┘
+                                                            │
+                               ALL metrics via one bridge   │
+                                                            │
+                     ┌──────────────────────────────────────┼───────────┐
+                     │        Local Docker Compose          │           │
+                     │                                      ▼           │
+                     │                       ┌────────────────────┐     │
+                     │                       │ stackdriver-       │     │
+                     │                       │ exporter :9255     │     │
+                     │                       │                    │     │
+                     │                       │ prefixes:          │     │
+                     │                       │  dataflow.../job   │     │
+                     │                       │  custom.../dataflow│     │
+                     │                       │  workload.google.. │     │
+                     │                       │  run.googleapis..  │     │
+                     │                       │  pubsub.google..   │     │
+                     │                       │  bigtable.google.. │     │
+                     │                       │  bigquery.google.. │     │
+                     │                       └────────┬───────────┘     │
+                     │                                │                 │
+                     │                                ▼                 │
+                     │                 ┌──────────────────────────┐     │
+                     │                 │   Prometheus :9090       │     │
+                     │                 └────────────┬─────────────┘     │
+                     │                              │                   │
+                     │                    ┌─────────┴─────────┐        │
+                     │                    ▼                   ▼        │
+                     │  ┌──────────────────────┐  ┌─────────────────┐  │
+                     │  │   Grafana :3000      │  │ Alertmanager    │  │
+                     │  │   (dashboards)       │  │ :9093           │  │
+                     │  └──────────────────────┘  └─────────────────┘  │
+                     └──────────────────────────────────────────────────┘
 ```
 
-**Collection patterns:**
-- **FastAPI service:** OTel SDK auto-instrumentation → OTel Collector → Prometheus (via Collector's Prometheus exporter)
-- **Dataflow workers:** Beam custom metrics → Cloud Monitoring → stackdriver-exporter → Prometheus
-- **GCP platform metrics:** stackdriver-exporter scrapes Cloud Monitoring for Dataflow/Pub/Sub/Cloud Run/Bigtable
+### Local Dev Architecture (optional — for testing without GCP)
+
+For local development, the OTel Collector is kept so a locally-running FastAPI can push metrics directly. This path is NOT used in production.
+
+```
+  ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────┐
+  │  FastAPI     │────▶│  OTel Collector  │────▶│  Prometheus      │────▶│  Grafana     │
+  │  (local)    │     │  :4317 → :8889   │     │  :9090           │     │  :3000       │
+  └──────────────┘     └──────────────────┘     └──────────────────┘     └─────────────┘
+```
+
+### Collection Patterns (production)
+
+| Source | Exporter | Cloud Monitoring Prefix | Notes |
+|---|---|---|---|
+| **FastAPI (Cloud Run)** | `CloudMonitoringMetricsExporter` | `workload.googleapis.com/fastapi.*` | Custom ML metrics (latency, batch size, predictions) |
+| **FastAPI (Cloud Run)** | Auto-collected by GCP | `run.googleapis.com/container/*` | Request count, latency, instance count |
+| **Dataflow (Beam custom)** | Auto-exported by Dataflow | `custom.googleapis.com/dataflow/*` | `parse_success`, `prediction_latency`, etc. |
+| **Dataflow (system)** | Auto-collected by GCP | `dataflow.googleapis.com/job/*` | Worker count, elapsed time, vCPUs |
+| **Pub/Sub** | Auto-collected by GCP | `pubsub.googleapis.com/*` | Backlog, publish rate, ack latency |
+| **Bigtable** | Auto-collected by GCP | `bigtable.googleapis.com/server/*` | Read/write latency, row count |
+| **BigQuery** | Auto-collected by GCP | `bigquery.googleapis.com/storage/*` | Bytes stored, streaming insert count |
+
+> **Why not OTel Collector in production?** The original plan had FastAPI push OTLP to a co-located OTel Collector. This works when both are on the same network (Docker, K8s), but fails when FastAPI is on Cloud Run — there's no OTel Collector to reach. Using `CloudMonitoringMetricsExporter` instead routes FastAPI metrics through the same Cloud Monitoring path that Beam and GCP platform metrics already use. One bridge (stackdriver-exporter), one scrape target, no network boundary issues.
 
 ---
 
@@ -104,28 +165,44 @@ OTel auto-instrumentation handles request latency, status codes, and trace conte
 automatically — no manual middleware needed. We add custom metrics only for
 ML-specific signals (prediction latency, batch size, model load time).
 
+The exporter is **environment-aware**: Cloud Run uses `CloudMonitoringMetricsExporter`
+(metrics land in Cloud Monitoring → stackdriver-exporter pulls them into Prometheus).
+Local dev uses `OTLPMetricExporter` (pushes directly to the OTel Collector in docker-compose).
+
 ```python
 # In fastapi_server.py
+import os
 from opentelemetry import metrics, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
 import time
 
-# --- OTel setup (run once at startup, before app creation) ---
+resource = Resource.create({"service.name": "fastapi-inference"})
+
+# --- Environment-aware exporter ---
+# Cloud Run sets K_SERVICE automatically; use it to detect production.
+# Local dev: set OTEL_EXPORTER_OTLP_ENDPOINT to use OTel Collector instead.
+otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+if otel_endpoint:
+    # Local dev: push to OTel Collector (same Docker network)
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    exporter = OTLPMetricExporter(endpoint=otel_endpoint, insecure=True)
+else:
+    # Production (Cloud Run): push to Google Cloud Monitoring
+    from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
+    exporter = CloudMonitoringMetricsExporter()
+
 metric_reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint="otel-collector:4317", insecure=True),
+    exporter,
     export_interval_millis=10_000,
 )
-metrics.set_meter_provider(MeterProvider(metric_readers=[metric_reader]))
-trace.set_tracer_provider(TracerProvider())
-
+metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
 meter = metrics.get_meter("fastapi-inference")
 
 # Auto-instruments all HTTP requests (latency, status, method, path)
-# Replaces the manual metrics_middleware and /metrics endpoint
 FastAPIInstrumentor.instrument_app(app)
 
 # Custom ML-specific metrics
@@ -142,13 +219,13 @@ batch_size_hist = meter.create_histogram(
     name="fastapi.predict.batch_size",
     description="Number of instances per /predict call",
 )
-model_load_time = meter.create_gauge(
+model_load_time = meter.create_histogram(
     name="fastapi.model.load_duration",
     description="Time taken to load the model at startup",
     unit="s",
 )
 
-# --- Usage in /predict endpoint ---
+# --- Usage in /predict endpoint (unchanged) ---
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
     if model is None:
@@ -175,10 +252,14 @@ async def predict(request: PredictionRequest):
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 ```
 
-> **No `/metrics` endpoint needed.** OTel SDK pushes metrics to the OTel Collector via OTLP gRPC.
-> The Collector then exposes them for Prometheus to scrape. This decouples the app from the
-> metrics backend — swap the Collector's exporter config to switch from Prometheus to SigNoz
-> without touching application code.
+> **Production path:** `CloudMonitoringMetricsExporter` pushes metrics to Cloud Monitoring
+> under the `workload.googleapis.com/` prefix. The stackdriver-exporter in docker-compose
+> pulls these into Prometheus. Metric names in Prometheus become
+> `workload_googleapis_com:fastapi_predict_duration`, etc.
+>
+> **Local dev path:** Setting `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`
+> falls back to OTLP push to the local OTel Collector. Metric names in Prometheus are
+> `fastapi_fastapi_predict_duration` (via the Collector's `namespace: fastapi` config).
 
 ### Implementation — Dataflow (Beam Custom Metrics)
 
@@ -575,19 +656,25 @@ ORDER BY feature_fetch_latency_ms DESC;
 
 ## Infrastructure Setup
 
-### Deployment (Docker Compose for local dev, GKE for prod)
+### Deployment
+
+The docker-compose stack serves **production monitoring** — stackdriver-exporter bridges
+all Cloud Monitoring metrics into local Prometheus/Grafana. The OTel Collector is optional,
+only needed when running FastAPI locally for development.
 
 ```yaml
-# docker-compose.observability.yml (local development)
+# docker-compose.observability.yml
 services:
-  # Receives OTLP from FastAPI, exposes /metrics for Prometheus to scrape
+  # Optional: only needed for local dev (FastAPI running on host/docker)
+  # Not used for production monitoring — Cloud Run FastAPI pushes to Cloud Monitoring instead
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     ports:
-      - "4317:4317"   # OTLP gRPC (FastAPI pushes here)
+      - "4317:4317"   # OTLP gRPC (local FastAPI pushes here)
       - "8889:8889"   # Prometheus exporter (Prometheus scrapes here)
     volumes:
       - ./observability/otel-collector.yml:/etc/otelcol-contrib/config.yaml
+    profiles: ["local-dev"]   # only starts with: docker compose --profile local-dev up
 
   prometheus:
     image: prom/prometheus:latest
@@ -614,18 +701,23 @@ services:
     volumes:
       - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
 
-  # Bridge GCP metrics into Prometheus
+  # Bridge ALL GCP metrics into Prometheus (production monitoring path)
   stackdriver-exporter:
     image: prometheuscommunity/stackdriver-exporter:latest
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/credentials/sa.json
       - STACKDRIVER_EXPORTER_GOOGLE_PROJECT_ID=deeplearning-sahil
-      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com
+      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,custom.googleapis.com/dataflow,workload.googleapis.com,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com,bigquery.googleapis.com/storage
     ports:
       - "9255:9255"
     volumes:
       - ./deeplearning-sahil-e50332de6687.json:/credentials/sa.json
 ```
+
+> **Prefix additions vs. original:**
+> - `custom.googleapis.com/dataflow` — Beam custom metrics (`parse_success`, `prediction_latency_ms`, etc.)
+> - `workload.googleapis.com` — FastAPI OTel metrics pushed via `CloudMonitoringMetricsExporter`
+> - `bigquery.googleapis.com/storage` — was missing in original plan, added in Phase 5
 
 ### OTel Collector Config
 
@@ -692,17 +784,21 @@ scrape_configs:
 
 ## Implementation Order
 
-### Phase 1: FastAPI Metrics (lowest effort, highest signal) -- DONE
+### Phase 1: FastAPI Metrics (lowest effort, highest signal) -- NEEDS FIX
 1. ~~Add OTel dependencies to `requirements.fastapi.txt`~~ (see Dependencies below)
 2. ~~Add OTel SDK setup + `FastAPIInstrumentor.instrument_app(app)` to `fastapi_server.py`~~
 3. ~~Add custom ML metrics: prediction latency, batch size, predictions total~~ (see Implementation above)
 4. ~~Deploy OTel Collector + Prometheus + Grafana (docker-compose locally)~~ — see `observability/`
 5. ~~Build Dashboard 1 (Pipeline Health)~~ — see `observability/grafana/dashboards/pipeline-health.json`
+6. **FIX:** Switch FastAPI exporter from `OTLPMetricExporter("otel-collector:4317")` to environment-aware exporter: `CloudMonitoringMetricsExporter` for production (Cloud Run), `OTLPMetricExporter` for local dev only. See updated Implementation section above.
+7. **FIX:** Add `opentelemetry-exporter-gcp-monitoring` to `requirements.fastapi.txt`
+8. **FIX:** Update Grafana dashboard queries from `fastapi_fastapi_*` to `workload_googleapis_com:fastapi_*` for production metric names
 
-### Phase 2: Beam / Dataflow Metrics -- DONE
+### Phase 2: Beam / Dataflow Metrics -- NEEDS FIX
 1. ~~Add `Metrics.counter()` and `Metrics.distribution()` to all DoFns~~
 2. ~~Deploy stackdriver-exporter to bridge Dataflow metrics → Prometheus~~
-3. Add feature fetch latency, error counters, write latency to dashboards (Phase 5 — Grafana panels)
+3. **FIX:** Add `custom.googleapis.com/dataflow` to stackdriver-exporter metric prefixes (currently only scrapes `dataflow.googleapis.com/job` system metrics, missing Beam custom counters)
+4. Add feature fetch latency, error counters, write latency to dashboards (Phase 5 — Grafana panels)
 
 ### Phase 3: Error Handling + Dead Letters -- DONE
 1. ~~Create `ml_dataset.dead_letters` BQ table~~ — run DDL manually in BQ console
@@ -737,12 +833,30 @@ Per-entity tracing and investigation deferred — aggregate Beam metrics (Phase 
 opentelemetry-api>=1.25.0
 opentelemetry-sdk>=1.25.0
 opentelemetry-instrumentation-fastapi>=0.46b0
-opentelemetry-exporter-otlp-proto-grpc>=1.25.0
+opentelemetry-exporter-otlp-proto-grpc>=1.25.0       # local dev (OTel Collector)
+opentelemetry-exporter-gcp-monitoring>=1.9.0a0        # production (Cloud Monitoring)
 
 # pyproject.toml (add to beam/dataflow deps — Beam metrics are native, no OTel deps needed)
 # No additional deps for Phase 2 (Beam Metrics are built-in)
 # OTel deps only needed if/when Beam Python gets OTel tracing support (Phase 4+)
 ```
+
+## Grafana Metric Name Mapping
+
+Metrics coming through stackdriver-exporter have different Prometheus names than
+metrics coming through OTel Collector. Dashboards must use the production names.
+
+| Metric (OTel SDK name) | Via OTel Collector (local dev) | Via stackdriver-exporter (production) |
+|---|---|---|
+| `fastapi.predictions.total` | `fastapi_fastapi_predictions_total` | `workload_googleapis_com:fastapi_predictions_total` |
+| `fastapi.predict.duration` | `fastapi_fastapi_predict_duration` | `workload_googleapis_com:fastapi_predict_duration` |
+| `fastapi.predict.batch_size` | `fastapi_fastapi_predict_batch_size` | `workload_googleapis_com:fastapi_predict_batch_size` |
+| Beam: `parse_success` | N/A | `custom_googleapis_com:dataflow_ParsePubSubMessage_parse_success` |
+| Beam: `prediction_latency_ms` | N/A | `custom_googleapis_com:dataflow_BatchCallFastAPIService_prediction_latency_ms` |
+
+> **Dashboard strategy:** Build Grafana dashboards using the production (stackdriver-exporter)
+> metric names. For local dev with OTel Collector, either use a separate dashboard variant
+> or use Grafana variables to switch the metric prefix.
 
 ---
 
