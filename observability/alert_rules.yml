@@ -1,68 +1,70 @@
 groups:
-  - name: fastapi-inference
+  - name: cloud-run-inference
     rules:
-      - alert: HighPredictionErrorRate
+      - alert: HighCloudRunErrorRate
         expr: >
-          sum(rate(fastapi_fastapi_predictions_total{status="error"}[5m]))
+          sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_count{response_code_class="5xx"}[5m]))
           /
-          sum(rate(fastapi_fastapi_predictions_total[5m]))
+          sum(rate(stackdriver_cloud_run_revision_run_googleapis_com_container_request_count[5m]))
           > 0.05
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Prediction error rate > 5% for 5 minutes"
+          summary: "Cloud Run 5xx error rate > 5% for 5 minutes"
 
       - alert: NoPredictionsFlowing
-        expr: sum(rate(fastapi_fastapi_predictions_total[10m])) == 0
+        expr: sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_success[10m])) == 0
         for: 10m
         labels:
           severity: critical
         annotations:
-          summary: "Zero predictions in last 10 minutes — service may be down"
+          summary: "Zero predictions in last 10 minutes — pipeline or FastAPI may be down"
 
       - alert: HighPredictionLatency
         expr: >
-          histogram_quantile(0.95,
-            sum(rate(fastapi_fastapi_predict_duration_bucket[5m])) by (le)
-          ) > 1.0
+          sum(stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_latency_ms_mean)
+          > 1000
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "p95 prediction latency exceeds 1 second"
+          summary: "Mean prediction latency exceeds 1 second"
 
   - name: dataflow-pipeline-errors
     rules:
       - alert: FeatureFetchFailureSpike
         expr: >
-          sum(rate(dataflow_job_user_counter{metric_name=~"FetchFeaturesFromOnlineStore-fetch_failure|FetchFeaturesFromOnlineStore-fetch_missing_features"}[5m])) > 10
+          sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_failure[5m]))
+          + sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_retry[5m]))
+          > 10
         for: 3m
         labels:
           severity: warning
         annotations:
           summary: "Feature fetch failures spiking — check Bigtable / online store"
 
-      - alert: HighParseErrorRate
+      - alert: PredictionRetrySpike
         expr: >
-          sum(rate(dataflow_job_user_counter{metric_name="ParsePubSubMessage-parse_error"}[5m]))
+          sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_prediction_retry[5m])) > 5
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prediction retries spiking — check FastAPI service health"
+
+      - alert: ParseToFetchDropoff
+        expr: >
+          (sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_parse_success[5m]))
+          - sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_fetch_success[5m])))
           /
-          (sum(rate(dataflow_job_user_counter{metric_name="ParsePubSubMessage-parse_success"}[5m])) + 1)
+          (sum(rate(stackdriver_dataflow_job_custom_googleapis_com_dataflow_parse_success[5m])) + 1)
           > 0.1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Pub/Sub message parse error rate > 10%"
-
-      - alert: PredictionBatchFailureSpike
-        expr: >
-          sum(rate(dataflow_job_user_counter{metric_name="BatchCallFastAPIService-prediction_error"}[5m])) > 5
-        for: 3m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Prediction batch failures spiking — check FastAPI service health"
+          summary: "More than 10% of parsed messages not reaching fetch — messages being dropped"
 
   - name: cost-attribution
     rules:
