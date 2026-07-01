@@ -1,7 +1,47 @@
 # Observability Plan: Prometheus + Grafana for ML Ops
 
-Stack choice: **Prometheus + Grafana** — portable, open-source, industry-standard.
+Stack choice: **Prometheus + Grafana** for the backend, **OpenTelemetry** for instrumentation.
 Complements existing structured JSON logging (Cloud Logging) with real-time metrics, dashboards, and alerting.
+
+> **Existing monitoring baseline** (see `docs/production_deployment_plan.md`): Airflow UI for DAG
+> health, Vertex AI console for pipeline runs / model registry, BQ ad-hoc queries for prediction
+> counts, Dataflow console for streaming job status / watermark lag, Cloud Run metrics for request
+> latency / errors. This plan builds on top of that baseline — Prometheus/Grafana unifies these
+> signals into a single pane with alerting, rather than checking 5 consoles manually.
+
+---
+
+## Stack Decision: Why OTel-First with Prometheus+Grafana Backend
+
+### Alternatives Evaluated
+
+| | **Prometheus + Grafana** | **SigNoz** | **Observe** |
+|---|---|---|---|
+| Architecture | Separate tools: Prometheus (metrics), Loki (logs), Tempo (traces), Grafana (dashboards) | Single platform: metrics + traces + logs in one ClickHouse backend | SaaS data-lake: logs + metrics + traces + AI SRE + knowledge graph |
+| Instrumentation | Prometheus client libs or OpenTelemetry | OpenTelemetry-native only | OpenTelemetry + proprietary collectors |
+| Signal correlation | Manual — stitch across backends with labels | Native — click from metric spike → correlated traces → logs | Native — data-lake joins + AI-driven root-cause |
+| Self-hosted ops | Prometheus is simple, well-understood | ClickHouse is a real operational burden | SaaS-only, enterprise-priced |
+
+### Why Not SigNoz Today
+
+SigNoz is architecturally better (unified signals, OTel-native, no tool sprawl), but its main advantage — **correlated distributed traces** — can't be realized for this stack yet:
+
+1. **OpenTelemetry tracing for Beam Python SDK is not production-ready.** Trace propagation through Dataflow workers (our heaviest component) doesn't work. The Java SDK has active OTel PRs, but Python support hasn't landed.
+2. **GCP metric ingestion is less proven.** SigNoz's `googlecloudmonitoring` OTel receiver supports Cloud Run and Pub/Sub, but has no Dataflow-specific documentation. The Prometheus `stackdriver-exporter` is battle-tested for this path.
+3. **Self-hosted SigNoz means running ClickHouse** — real ops burden for a project that doesn't yet have any observability infra.
+
+### Why OTel-First Instrumentation
+
+Even though the backend is Prometheus, we instrument with **OpenTelemetry SDK** (not `prometheus-client`) from day one:
+
+- **Backend-agnostic.** OTel Collector exports to Prometheus today. When Beam Python gets OTel tracing support, switching the backend to SigNoz (or Observe, or Grafana Tempo) is a Collector config change — zero re-instrumentation.
+- **Auto-instrumentation.** `opentelemetry-instrumentation-fastapi` auto-instruments all HTTP requests, traces, and metrics with one line. No manual middleware needed.
+- **Industry convergence.** OTel is the CNCF standard. Prometheus client libs are stable but a dead-end for traces/logs.
+- **Future-proof.** When we add tracing (Phase 4), the OTel SDK is already in place — we just enable the trace exporter.
+
+### Decision
+
+Instrument with **OpenTelemetry SDK + auto-instrumentation**. Export metrics to **Prometheus** via the **OTel Collector's Prometheus exporter**. Visualize with **Grafana**. Re-evaluate SigNoz when Beam Python SDK gets OTel tracing support.
 
 ---
 
@@ -13,24 +53,25 @@ Complements existing structured JSON logging (Cloud Logging) with real-time metr
 │  (messages)  │     │  (Beam workers)  │     │  (sink)      │
 └─────────────┘     └───────┬──────────┘     └─────────────┘
                             │
-                    pushgateway (batch)
+                    Beam Metrics → Cloud Monitoring
                             │
                             ▼
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  FastAPI     │────▶│  Prometheus      │────▶│  Grafana     │
-│  /metrics   │     │  (scrape + store)│     │  (dashboards)│
-└─────────────┘     └───────┬──────────┘     └─────────────┘
-                            │
-                            ▼
-                    ┌──────────────────┐
-                    │  Alertmanager    │
-                    │  (Slack/PD)      │
-                    └──────────────────┘
+┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  FastAPI     │────▶│  OTel Collector  │────▶│  Prometheus      │────▶│  Grafana     │
+│  (OTel SDK) │     │  (receive +      │     │  (scrape + store)│     │  (dashboards)│
+└─────────────┘     │   export)        │     └───────┬──────────┘     └─────────────┘
+                    └──────┬───────────┘             │
+                           │                         ▼
+                    stackdriver-exporter      ┌──────────────────┐
+                    (GCP metrics bridge)      │  Alertmanager    │
+                                              │  (Slack/PD)      │
+                                              └──────────────────┘
 ```
 
-**Two collection patterns:**
-- FastAPI service: native `/metrics` endpoint (Prometheus scrapes directly)
-- Dataflow workers: push to Prometheus Pushgateway (short-lived workers can't be scraped reliably), OR use Beam custom metrics + a sidecar exporter
+**Collection patterns:**
+- **FastAPI service:** OTel SDK auto-instrumentation → OTel Collector → Prometheus (via Collector's Prometheus exporter)
+- **Dataflow workers:** Beam custom metrics → Cloud Monitoring → stackdriver-exporter → Prometheus
+- **GCP platform metrics:** stackdriver-exporter scrapes Cloud Monitoring for Dataflow/Pub/Sub/Cloud Run/Bigtable
 
 ---
 
@@ -57,60 +98,87 @@ Track histograms (not averages) — you need p50/p95/p99 to catch tail latency.
 - `entity_id_prefix`: first segment (e.g. `streaming`, `batch`) — NOT full entity_id (cardinality explosion)
 - `status`: `success` | `error` | `retry`
 
-### Implementation — FastAPI Service
+### Implementation — FastAPI Service (OTel SDK)
+
+OTel auto-instrumentation handles request latency, status codes, and trace context
+automatically — no manual middleware needed. We add custom metrics only for
+ML-specific signals (prediction latency, batch size, model load time).
 
 ```python
 # In fastapi_server.py
-from prometheus_client import Histogram, Counter, Gauge, generate_latest
-from starlette.responses import Response
+from opentelemetry import metrics, trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 import time
 
-REQUEST_LATENCY = Histogram(
-    "fastapi_request_duration_seconds",
-    "Request latency",
-    ["method", "endpoint", "status_code"],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+# --- OTel setup (run once at startup, before app creation) ---
+metric_reader = PeriodicExportingMetricReader(
+    OTLPMetricExporter(endpoint="otel-collector:4317", insecure=True),
+    export_interval_millis=10_000,
+)
+metrics.set_meter_provider(MeterProvider(metric_readers=[metric_reader]))
+trace.set_tracer_provider(TracerProvider())
+
+meter = metrics.get_meter("fastapi-inference")
+
+# Auto-instruments all HTTP requests (latency, status, method, path)
+# Replaces the manual metrics_middleware and /metrics endpoint
+FastAPIInstrumentor.instrument_app(app)
+
+# Custom ML-specific metrics
+prediction_latency = meter.create_histogram(
+    name="fastapi.predict.duration",
+    description="Model prediction latency (compute only)",
+    unit="s",
+)
+predictions_total = meter.create_counter(
+    name="fastapi.predictions.total",
+    description="Total predictions served",
+)
+batch_size_hist = meter.create_histogram(
+    name="fastapi.predict.batch_size",
+    description="Number of instances per /predict call",
+)
+model_load_time = meter.create_gauge(
+    name="fastapi.model.load_duration",
+    description="Time taken to load the model at startup",
+    unit="s",
 )
 
-PREDICTION_LATENCY = Histogram(
-    "fastapi_predict_latency_seconds",
-    "Model prediction latency (compute only)",
-    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5],
-)
+# --- Usage in /predict endpoint ---
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(request: PredictionRequest):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    try:
+        start = time.perf_counter()
+        df = pd.DataFrame(i.model_dump() for i in request.instances)
+        predictions = model.predict(df)
+        probabilities = model.predict_proba(df)
+        duration = time.perf_counter() - start
 
-MODEL_LOAD_TIME = Gauge(
-    "model_load_latency_seconds",
-    "Time taken to load the model at startup",
-)
+        prediction_latency.record(duration)
+        predictions_total.add(len(predictions), {"status": "success"})
+        batch_size_hist.record(len(request.instances))
 
-PREDICTIONS_TOTAL = Counter(
-    "predictions_total",
-    "Total predictions served",
-    ["model_type", "status"],
-)
-
-BATCH_SIZE = Histogram(
-    "prediction_batch_size",
-    "Number of instances per /predict call",
-    buckets=[1, 5, 10, 25, 50, 100],
-)
-
-@app.middleware("http")
-async def metrics_middleware(request, call_next):
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration = time.perf_counter() - start
-    REQUEST_LATENCY.labels(
-        method=request.method,
-        endpoint=request.url.path,
-        status_code=response.status_code,
-    ).observe(duration)
-    return response
-
-@app.get("/metrics")
-async def metrics():
-    return Response(content=generate_latest(), media_type="text/plain")
+        results = [
+            Prediction(class_=int(pred), class_probabilities=proba.tolist())
+            for pred, proba in zip(predictions, probabilities)
+        ]
+        return PredictionResponse(predictions=results)
+    except Exception as e:
+        predictions_total.add(1, {"status": "error"})
+        logger.error(f"Prediction error: {e}")
+        raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 ```
+
+> **No `/metrics` endpoint needed.** OTel SDK pushes metrics to the OTel Collector via OTLP gRPC.
+> The Collector then exposes them for Prometheus to scrape. This decouples the app from the
+> metrics backend — swap the Collector's exporter config to switch from Prometheus to SigNoz
+> without touching application code.
 
 ### Implementation — Dataflow (Beam Custom Metrics)
 
@@ -126,7 +194,7 @@ Beam has built-in metrics (Counters, Distributions, Gauges) that Dataflow surfac
 **Recommended: Option A** — use Beam's native metrics, export to Prometheus via stackdriver-exporter. Simpler, no Pushgateway to manage.
 
 ```python
-# In online_store_reader.py
+# In online_store_reader.py (sync client — see _fetch_one)
 from apache_beam.metrics import Metrics
 
 class FetchFeaturesFromOnlineStore(beam.DoFn):
@@ -137,34 +205,50 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
         self.fetch_failure = Metrics.counter(self.__class__.__name__, "feature_fetch_failure")
         self.fetch_retry = Metrics.counter(self.__class__.__name__, "feature_fetch_retry")
 
-    async def _fetch_one(self, element, semaphore):
+    def _fetch_one(self, element):
         entity_id = element["entity_id"]
         start = time.monotonic()
-        async with semaphore:
-            for attempt in range(self.max_retries + 1):
-                try:
-                    response = await self._client.fetch_feature_values(...)
-                    # ... existing logic ...
-                    if len(features) == len(self.feature_columns):
-                        elapsed_ms = (time.monotonic() - start) * 1000
-                        self.fetch_latency.update(int(elapsed_ms))
-                        self.fetch_success.inc()
-                        element.update(features)
-                        return element
+        retry_count = 0
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._client.fetch_feature_values(
+                    request=FetchFeatureValuesRequest(
+                        feature_view=self._feature_view_name,
+                        data_key=FeatureViewDataKey(key=entity_id),
+                    )
+                )
+                features = {}
+                for pair in response.key_values.features:
+                    if pair.name in self.feature_columns:
+                        features[pair.name] = pair.value.double_value
 
-                    if attempt < self.max_retries:
-                        self.fetch_retry.inc()
-                        # ... existing backoff ...
-                    else:
-                        self.fetch_failure.inc()
-                        return None
+                if len(features) == len(self.feature_columns):
+                    elapsed_ms = (time.monotonic() - start) * 1000
+                    self.fetch_latency.update(int(elapsed_ms))
+                    self.fetch_success.inc()
+                    element.update(features)
+                    element["feature_fetch_latency_ms"] = elapsed_ms
+                    element["feature_fetch_retry_count"] = retry_count
+                    return element
 
-                except Exception as e:
-                    if attempt < self.max_retries:
-                        self.fetch_retry.inc()
-                    else:
-                        self.fetch_failure.inc()
-                        return None
+                if attempt < self.max_retries:
+                    retry_count += 1
+                    self.fetch_retry.inc()
+                    backoff = self.initial_backoff_secs * (2 ** attempt)
+                    time.sleep(backoff)
+                else:
+                    self.fetch_failure.inc()
+                    return None
+
+            except Exception as e:
+                if attempt < self.max_retries:
+                    retry_count += 1
+                    self.fetch_retry.inc()
+                    backoff = self.initial_backoff_secs * (2 ** attempt)
+                    time.sleep(backoff)
+                else:
+                    self.fetch_failure.inc()
+                    return None
 ```
 
 ---
@@ -347,23 +431,64 @@ class ParsePubSubMessage(beam.DoFn):
 
 ### Feature Snapshot at Prediction Time
 
-Currently you write the prediction to BQ but not the feature values the model actually saw. Add them:
+Feature values are **already stored** in the `features` column as a JSON string (`iris_inference_pipeline.py:142-145`):
 
 ```python
-# In BatchCallFastAPIService._call_async(), the feature values are already in `batch`
-# Include them in the BQ prediction row (you partially do this already for FEATURE_COLUMNS)
-# Also add: trace_id, feature_fetch_latency_ms, retry_count
+features = {col: element[col] for col in FEATURE_COLUMNS}
+row = {
+    ...
+    "features": json.dumps(features),  # all 4 feature values serialized
+}
 ```
 
-This lets you answer: "What did the model see when it predicted X for entity Y at time T?"
+You can already query what the model saw with `JSON_EXTRACT` in BQ. What's **missing** is the metadata to fully trace a prediction:
+
+| Field | Why It's Needed | Where to Capture |
+|---|---|---|
+| `trace_id` | Correlate a prediction back to its Pub/Sub message across all pipeline stages | `ParsePubSubMessage` — requires `ReadFromPubSub(with_attributes=True)` to get `message_id` |
+| `feature_fetch_latency_ms` | Debug slow predictions — is it the feature store or the model? | `online_store_reader._fetch_one()` — wrap the fetch call with `time.monotonic()` |
+| `feature_fetch_retry_count` | Know if predictions relied on retried (potentially stale) feature fetches | `online_store_reader._fetch_one()` — increment counter per retry in the backoff loop |
+| `prediction_retry_count` | Know if FastAPI call needed retries (network issues, overload) | `BatchCallFastAPIService._call_async()` — track `attempt` value on success |
+
+To add these, propagate them through the element dict and extend `PREDICTION_SCHEMA`:
+
+```python
+# Add to PREDICTION_SCHEMA["fields"]:
+{"name": "trace_id", "type": "STRING", "mode": "NULLABLE"},
+{"name": "feature_fetch_latency_ms", "type": "FLOAT", "mode": "NULLABLE"},
+{"name": "feature_fetch_retry_count", "type": "INTEGER", "mode": "NULLABLE"},
+{"name": "prediction_retry_count", "type": "INTEGER", "mode": "NULLABLE"},
+```
+
+This lets you answer: "What did the model see when it predicted X for entity Y at time T, and how healthy was the path to get there?"
 
 ### Investigation Queries
 
+> **Note:** Batch inference uses `WRITE_APPEND` — the `iris_predictions` table accumulates
+> across runs. Always filter by `prediction_timestamp` to isolate a single run's results.
+
 ```sql
--- Trace a single entity through the system
+-- Trace a single entity through the system (streaming)
 SELECT *
 FROM `ml_dataset.iris_predictions_streaming`
 WHERE entity_id = '42_streaming'
+ORDER BY prediction_timestamp DESC
+LIMIT 10;
+
+-- Latest batch inference run results
+SELECT *
+FROM `ml_dataset.iris_predictions`
+WHERE prediction_timestamp = (
+  SELECT MAX(prediction_timestamp) FROM `ml_dataset.iris_predictions`
+);
+
+-- Compare batch run sizes over time (catches data drift in source table)
+SELECT
+  prediction_timestamp,
+  COUNT(*) as row_count,
+  COUNT(DISTINCT prediction) as distinct_classes
+FROM `ml_dataset.iris_predictions`
+GROUP BY prediction_timestamp
 ORDER BY prediction_timestamp DESC
 LIMIT 10;
 
@@ -394,6 +519,20 @@ FROM `ml_dataset.iris_predictions_streaming`
 WHERE prediction_timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
 GROUP BY hour, prediction
 ORDER BY hour, prediction;
+
+-- Diagnose slow predictions using feature snapshot metadata (after Phase 4)
+SELECT
+  entity_id,
+  trace_id,
+  feature_fetch_latency_ms,
+  feature_fetch_retry_count,
+  prediction_retry_count,
+  processing_time,
+  JSON_EXTRACT(features, '$.sepal_length_cm') as sepal_length
+FROM `ml_dataset.iris_predictions_streaming`
+WHERE prediction_timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+  AND (feature_fetch_retry_count > 0 OR prediction_retry_count > 0)
+ORDER BY feature_fetch_latency_ms DESC;
 ```
 
 ### Grafana Investigation Dashboard
@@ -441,6 +580,15 @@ ORDER BY hour, prediction;
 ```yaml
 # docker-compose.observability.yml (local development)
 services:
+  # Receives OTLP from FastAPI, exposes /metrics for Prometheus to scrape
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "4317:4317"   # OTLP gRPC (FastAPI pushes here)
+      - "8889:8889"   # Prometheus exporter (Prometheus scrapes here)
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol-contrib/config.yaml
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -477,12 +625,38 @@ services:
       - "9255:9255"
     volumes:
       - ./deeplearning-sahil-e50332de6687.json:/credentials/sa.json
+```
 
-  # For Dataflow/Beam batch metrics
-  pushgateway:
-    image: prom/pushgateway:latest
-    ports:
-      - "9091:9091"
+### OTel Collector Config
+
+```yaml
+# observability/otel-collector.yml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 10s
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: fastapi
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    # Uncomment when Beam Python gets OTel tracing support:
+    # traces:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlp/signoz]  # swap backend without re-instrumenting
 ```
 
 ### Prometheus Scrape Config
@@ -502,33 +676,28 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  - job_name: "fastapi-inference"
+  # OTel Collector exposes FastAPI metrics via its Prometheus exporter
+  - job_name: "otel-collector"
     static_configs:
-      - targets: ["fastapi-service:8080"]
-    metrics_path: "/metrics"
+      - targets: ["otel-collector:8889"]
     scrape_interval: 10s
 
   - job_name: "stackdriver-exporter"
     static_configs:
       - targets: ["stackdriver-exporter:9255"]
     scrape_interval: 60s
-
-  - job_name: "pushgateway"
-    static_configs:
-      - targets: ["pushgateway:9091"]
-    honor_labels: true
 ```
 
 ---
 
 ## Implementation Order
 
-### Phase 1: FastAPI Metrics (lowest effort, highest signal)
-1. Add `prometheus-client` to `requirements.fastapi.txt`
-2. Add middleware + `/metrics` endpoint to `fastapi_server.py`
-3. Instrument: request latency, prediction count, batch size, error count
-4. Deploy Prometheus + Grafana (docker-compose locally, Cloud Run / GKE for prod)
-5. Build Dashboard 1 (Pipeline Health)
+### Phase 1: FastAPI Metrics (lowest effort, highest signal) -- DONE
+1. ~~Add OTel dependencies to `requirements.fastapi.txt`~~ (see Dependencies below)
+2. ~~Add OTel SDK setup + `FastAPIInstrumentor.instrument_app(app)` to `fastapi_server.py`~~
+3. ~~Add custom ML metrics: prediction latency, batch size, predictions total~~ (see Implementation above)
+4. ~~Deploy OTel Collector + Prometheus + Grafana (docker-compose locally)~~ — see `observability/`
+5. ~~Build Dashboard 1 (Pipeline Health)~~ — see `observability/grafana/dashboards/pipeline-health.json`
 
 ### Phase 2: Beam / Dataflow Metrics
 1. Add `Metrics.counter()` and `Metrics.distribution()` to all DoFns
@@ -543,11 +712,15 @@ scrape_configs:
 5. Build Dead Letters panel in Grafana
 
 ### Phase 4: Tracing + Investigation
-1. Switch to `ReadFromPubSub(with_attributes=True)` to capture message_id as trace_id
-2. Propagate trace_id through all pipeline stages
-3. Store feature snapshot at prediction time in BQ
-4. Build Investigation dashboard (entity lookup, feature correlation)
-5. Create BQ views for common investigation queries
+Feature values are already stored as JSON in the `features` column — this phase adds the missing tracing and diagnostic metadata.
+
+1. Switch to `ReadFromPubSub(with_attributes=True)` to capture `message_id` as `trace_id`
+2. Propagate `trace_id` through all pipeline stages (element dict → BQ row)
+3. Instrument `online_store_reader._fetch_one()` to capture `feature_fetch_latency_ms` and `feature_fetch_retry_count` per entity
+4. Capture `prediction_retry_count` in `BatchCallFastAPIService._call_async()` (the `attempt` value on success)
+5. Extend `PREDICTION_SCHEMA` with the 4 new fields and update BQ table DDL
+6. Build Investigation dashboard (entity lookup, feature correlation, slow-prediction diagnosis)
+7. Create BQ views for common investigation queries
 
 ### Phase 5: Cost Attribution
 1. Deploy stackdriver-exporter with Dataflow/Bigtable/BQ/Pub/Sub metric prefixes
@@ -561,10 +734,14 @@ scrape_configs:
 
 ```
 # requirements.fastapi.txt (add)
-prometheus-client>=0.20.0
+opentelemetry-api>=1.25.0
+opentelemetry-sdk>=1.25.0
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-exporter-otlp-proto-grpc>=1.25.0
 
-# pyproject.toml (add to beam/dataflow deps)
-prometheus-client>=0.20.0
+# pyproject.toml (add to beam/dataflow deps — Beam metrics are native, no OTel deps needed)
+# No additional deps for Phase 2 (Beam Metrics are built-in)
+# OTel deps only needed if/when Beam Python gets OTel tracing support (Phase 4+)
 ```
 
 ---
@@ -573,7 +750,8 @@ prometheus-client>=0.20.0
 
 ```
 observability/
-├── prometheus.yml                    # Scrape config
+├── otel-collector.yml                # OTel Collector: receive OTLP, export to Prometheus
+├── prometheus.yml                    # Scrape config (scrapes OTel Collector + stackdriver-exporter)
 ├── alert_rules.yml                   # Alertmanager rules
 ├── alertmanager.yml                  # Notification routing (Slack, PagerDuty)
 ├── docker-compose.observability.yml  # Local dev stack

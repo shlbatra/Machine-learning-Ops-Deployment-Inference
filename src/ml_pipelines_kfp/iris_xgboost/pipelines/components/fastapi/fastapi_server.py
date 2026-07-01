@@ -5,8 +5,16 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
 import os
+import time
 import uvicorn
 from google.cloud import storage
+
+from opentelemetry import metrics
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from models.instance import Instance
 from models.prediction import Prediction
@@ -15,11 +23,43 @@ from log import get_logger
 logger = get_logger(__name__)
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
+# --- OTel metrics setup ---
+otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
+resource = Resource.create({"service.name": "fastapi-inference"})
+
+metric_reader = PeriodicExportingMetricReader(
+    OTLPMetricExporter(endpoint=otel_endpoint, insecure=True),
+    export_interval_millis=10_000,
+)
+metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
+meter = metrics.get_meter("fastapi-inference")
+
+prediction_latency = meter.create_histogram(
+    name="fastapi.predict.duration",
+    description="Model prediction latency (compute only)",
+    unit="s",
+)
+predictions_total = meter.create_counter(
+    name="fastapi.predictions.total",
+    description="Total predictions served",
+)
+batch_size_hist = meter.create_histogram(
+    name="fastapi.predict.batch_size",
+    description="Number of instances per /predict call",
+)
+model_load_duration = meter.create_histogram(
+    name="fastapi.model.load_duration",
+    description="Time taken to load the model at startup",
+    unit="s",
+)
+
 app = FastAPI(
     title="ML Model Inference API",
     description="FastAPI server for ML model inference with Vertex AI compatibility",
     version="1.0.0",
 )
+
+FastAPIInstrumentor.instrument_app(app)
 
 model = None
 
@@ -64,6 +104,7 @@ async def load_model():
     model_gcs_path = os.getenv("MODEL_GCS_PATH") or os.getenv("AIP_STORAGE_URI")
     model_path = os.getenv("MODEL_PATH", "/app/model_artifacts/model.joblib")
 
+    start = time.perf_counter()
     try:
         if model_gcs_path:
             if not model_gcs_path.endswith(".joblib"):
@@ -73,7 +114,9 @@ async def load_model():
 
         if os.path.exists(model_path):
             model = joblib.load(model_path)
-            logger.info(f"Model loaded from {model_path}")
+            duration = time.perf_counter() - start
+            model_load_duration.record(duration)
+            logger.info(f"Model loaded from {model_path} in {duration:.2f}s")
             logger.info(f"Model type: {type(model)}")
         else:
             raise FileNotFoundError(f"Model file not found at {model_path}")
@@ -108,9 +151,15 @@ async def predict(request: PredictionRequest):
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     try:
+        start = time.perf_counter()
         df = pd.DataFrame(i.model_dump() for i in request.instances)
         predictions = model.predict(df)
         probabilities = model.predict_proba(df)
+        duration = time.perf_counter() - start
+
+        prediction_latency.record(duration)
+        predictions_total.add(len(predictions), {"status": "success"})
+        batch_size_hist.record(len(request.instances))
 
         results = [
             Prediction(
@@ -123,6 +172,7 @@ async def predict(request: PredictionRequest):
         return PredictionResponse(predictions=results)
 
     except Exception as e:
+        predictions_total.add(1, {"status": "error"})
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 

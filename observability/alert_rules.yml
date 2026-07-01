@@ -1,0 +1,33 @@
+groups:
+  - name: fastapi-inference
+    rules:
+      - alert: HighPredictionErrorRate
+        expr: >
+          sum(rate(fastapi_fastapi_predictions_total{status="error"}[5m]))
+          /
+          sum(rate(fastapi_fastapi_predictions_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prediction error rate > 5% for 5 minutes"
+
+      - alert: NoPredictionsFlowing
+        expr: sum(rate(fastapi_fastapi_predictions_total[10m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Zero predictions in last 10 minutes — service may be down"
+
+      - alert: HighPredictionLatency
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(fastapi_fastapi_predict_duration_bucket[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 prediction latency exceeds 1 second"
