@@ -699,10 +699,10 @@ scrape_configs:
 4. ~~Deploy OTel Collector + Prometheus + Grafana (docker-compose locally)~~ — see `observability/`
 5. ~~Build Dashboard 1 (Pipeline Health)~~ — see `observability/grafana/dashboards/pipeline-health.json`
 
-### Phase 2: Beam / Dataflow Metrics
-1. Add `Metrics.counter()` and `Metrics.distribution()` to all DoFns
-2. Deploy stackdriver-exporter to bridge Dataflow metrics → Prometheus
-3. Add feature fetch latency, error counters, write latency to dashboards
+### Phase 2: Beam / Dataflow Metrics -- DONE
+1. ~~Add `Metrics.counter()` and `Metrics.distribution()` to all DoFns~~
+2. ~~Deploy stackdriver-exporter to bridge Dataflow metrics → Prometheus~~
+3. Add feature fetch latency, error counters, write latency to dashboards (Phase 5 — Grafana panels)
 
 ### Phase 3: Error Handling + Dead Letters
 1. Create `ml_dataset.dead_letters` BQ table

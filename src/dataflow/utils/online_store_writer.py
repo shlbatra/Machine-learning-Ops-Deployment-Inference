@@ -1,4 +1,5 @@
 import logging
+import time
 
 import apache_beam as beam
 from google.cloud.aiplatform_v1beta1 import FeatureOnlineStoreServiceClient
@@ -29,6 +30,10 @@ class WriteToOnlineStore(beam.DoFn):
         self.online_store_id = online_store_id
         self.feature_view_id = feature_view_id
         self.feature_columns = feature_columns
+        self.write_latency = beam.metrics.Metrics.distribution("WriteToOnlineStore", "write_latency_ms")
+        self.write_success = beam.metrics.Metrics.counter("WriteToOnlineStore", "write_success")
+        self.write_failure = beam.metrics.Metrics.counter("WriteToOnlineStore", "write_failure")
+        self.rows_written = beam.metrics.Metrics.counter("WriteToOnlineStore", "rows_written")
 
     def setup(self):
         self._client = FeatureOnlineStoreServiceClient(
@@ -68,13 +73,18 @@ class WriteToOnlineStore(beam.DoFn):
             data_key_and_feature_values=entries,
         )
 
+        start = time.monotonic()
         try:
             responses = self._client.feature_view_direct_write(requests=iter([request]))
-            # Drain the response stream to ensure the server has processed the write
             for resp in responses:
                 logger.info(f"Direct write response: {resp}")
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            self.write_latency.update(elapsed_ms)
+            self.write_success.inc()
+            self.rows_written.inc(len(entries))
             logger.info(f"Wrote {len(entries)} rows to online store")
         except Exception as e:
+            self.write_failure.inc()
             logger.error(f"Online store write failed ({len(entries)} rows): {e}")
 
         yield from batch

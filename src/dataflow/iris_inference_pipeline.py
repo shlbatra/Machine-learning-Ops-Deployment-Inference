@@ -61,6 +61,11 @@ class ParsePubSubMessage(beam.DoFn):
     the feature ingestion pipeline's entity_id format).
     """
 
+    def __init__(self):
+        self.parse_success = beam.metrics.Metrics.counter("ParsePubSubMessage", "parse_success")
+        self.parse_error = beam.metrics.Metrics.counter("ParsePubSubMessage", "parse_error")
+        self.missing_id = beam.metrics.Metrics.counter("ParsePubSubMessage", "missing_entity_id")
+
     def process(self, element):
         try:
             message_data = json.loads(element.decode("utf-8"))
@@ -72,15 +77,18 @@ class ParsePubSubMessage(beam.DoFn):
                     entity_id = f"{sample_id}_streaming"
                     logger.info(f"Entity Id scored = {entity_id}")
                 else:
+                    self.missing_id.inc()
                     logger.warning(f"Message missing entity_id and sample_id: {message_data}")
                     return
 
+            self.parse_success.inc()
             yield {
                 "entity_id": entity_id,
                 "timestamp": message_data.get("timestamp"),
             }
 
         except (json.JSONDecodeError, AttributeError) as e:
+            self.parse_error.inc()
             logger.error(f"Error parsing message: {e}, message: {element}")
 
 
@@ -94,6 +102,11 @@ class BatchCallFastAPIService(beam.DoFn):
         self.service_url = service_url
         self.predict_url = f"{service_url}/predict"
         self.max_concurrent = max_concurrent
+        self.prediction_success = beam.metrics.Metrics.counter("BatchCallFastAPIService", "prediction_success")
+        self.prediction_error = beam.metrics.Metrics.counter("BatchCallFastAPIService", "prediction_error")
+        self.prediction_retry = beam.metrics.Metrics.counter("BatchCallFastAPIService", "prediction_retry")
+        self.prediction_latency = beam.metrics.Metrics.distribution("BatchCallFastAPIService", "prediction_latency_ms")
+        self.batch_size = beam.metrics.Metrics.distribution("BatchCallFastAPIService", "batch_size")
 
     def setup(self):
         self._loop = asyncio.new_event_loop()
@@ -117,6 +130,7 @@ class BatchCallFastAPIService(beam.DoFn):
 
     async def _call_async(self, batch):
         start_time = time.time()
+        self.batch_size.update(len(batch))
 
         instances = [
             {col: e[col] for col in FEATURE_COLUMNS}
@@ -135,6 +149,9 @@ class BatchCallFastAPIService(beam.DoFn):
 
                 predictions = result_data.get("predictions", [])
                 processing_time = time.time() - start_time
+
+                self.prediction_latency.update(int(processing_time * 1000))
+                self.prediction_success.inc(len(predictions))
 
                 results = []
                 for element, pred in zip(batch, predictions):
@@ -156,6 +173,7 @@ class BatchCallFastAPIService(beam.DoFn):
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last_error = e
+                self.prediction_retry.inc()
                 wait = self.RETRY_BACKOFF_BASE ** attempt
                 logger.warning(
                     f"Batch prediction attempt {attempt + 1}/{self.MAX_RETRIES} "
@@ -166,6 +184,7 @@ class BatchCallFastAPIService(beam.DoFn):
                 last_error = e
                 break
 
+        self.prediction_error.inc(len(batch))
         logging.error(f"Batch prediction failed after retries ({len(batch)} instances): {last_error}")
         processing_time = time.time() - start_time
         return [

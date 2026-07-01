@@ -31,3 +31,11 @@ services:
       - "9093:9093"
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+
+  stackdriver-exporter:
+    image: prometheuscommunity/stackdriver-exporter:latest
+    environment:
+      - STACKDRIVER_EXPORTER_GOOGLE_PROJECT_ID=${GCP_PROJECT_ID:-deeplearning-sahil}
+      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com
+    ports:
+      - "9255:9255"
