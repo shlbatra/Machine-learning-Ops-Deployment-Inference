@@ -705,7 +705,7 @@ scrape_configs:
 3. Add feature fetch latency, error counters, write latency to dashboards (Phase 5 — Grafana panels)
 
 ### Phase 3: Error Handling + Dead Letters -- DONE
-1. ~~Create `ml_dataset.dead_letters` BQ table~~ — see `scripts/setup_dead_letter_table.sh`
+1. ~~Create `ml_dataset.dead_letters` BQ table~~ — run DDL manually in BQ console
 2. ~~Add dead letter routing to `ParsePubSubMessage`, `FetchFeaturesFromOnlineStore`, `BatchCallFastAPIService`~~ — via Beam tagged outputs
 3. ~~Remove `ERROR` prediction rows pattern~~ — replaced with dead letter side output
 4. ~~Add Alertmanager rules for error rate thresholds~~ — see `observability/alert_rules.yml`
