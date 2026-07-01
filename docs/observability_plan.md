@@ -722,11 +722,11 @@ Per-entity tracing and investigation deferred — aggregate Beam metrics (Phase 
 6. Build Investigation dashboard (entity lookup, feature correlation, slow-prediction diagnosis)
 7. Create BQ views for common investigation queries
 
-### Phase 5: Cost Attribution
-1. Deploy stackdriver-exporter with Dataflow/Bigtable/BQ/Pub/Sub metric prefixes
-2. Add `pipeline` label to all custom metrics
-3. Build cost dashboard with per-pipeline attribution
-4. Set up cost anomaly alerts (daily spend > 2× rolling average)
+### Phase 5: Cost Attribution -- DONE
+1. ~~Deploy stackdriver-exporter with Dataflow/Bigtable/BQ/Pub/Sub metric prefixes~~ — added `bigquery.googleapis.com/storage` to `docker-compose.observability.yml`
+2. Pipeline attribution via Dataflow job names — Beam metric class names already distinguish pipeline stages; Dataflow job labels (`--labels pipeline=inference`) can be set at submission time for explicit grouping
+3. ~~Build cost dashboard~~ — see `observability/grafana/dashboards/cost-attribution.json` (vCPUs, Cloud Run instances, Pub/Sub rates, Bigtable ops, throughput, pricing reference)
+4. ~~Set up cost anomaly alerts~~ — see `observability/alert_rules.yml` (vCPU spike > 2x 7-day avg, Pub/Sub backlog > 10k)
 
 ---
 
@@ -762,7 +762,7 @@ observability/
     │   └── dashboards/
     │       └── dashboards.yml        # Auto-load dashboard JSON
     └── dashboards/
-        ├── pipeline-health.json      # Dashboard 1
-        ├── ml-model-health.json      # Dashboard 2
-        └── investigation.json        # Dashboard 3
+        ├── pipeline-health.json      # Dashboard 1: ops team daily view
+        ├── dead-letters.json         # Dashboard 2: error routing and dead letters
+        └── cost-attribution.json     # Dashboard 3: cost drivers and attribution
 ```

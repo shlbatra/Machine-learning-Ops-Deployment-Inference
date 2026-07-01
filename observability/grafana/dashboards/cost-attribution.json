@@ -1,0 +1,187 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Dataflow vCPUs (by job)",
+      "description": "Current vCPU count per Dataflow job. Primary cost driver — each vCPU costs ~$0.069/hr.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_dataflow_googleapis_com_job_current_num_vcpus)",
+          "legendFormat": "{{job_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Dataflow Elapsed Time (by job)",
+      "description": "Total elapsed time per Dataflow job in seconds. Streaming jobs accumulate continuously.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (job_name) (stackdriver_dataflow_job_dataflow_googleapis_com_job_elapsed_time)",
+          "legendFormat": "{{job_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cloud Run Instance Count",
+      "description": "Active Cloud Run instances for FastAPI service. Each instance-second costs ~$0.000024 (1 vCPU).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (service_name) (stackdriver_cloud_run_revision_run_googleapis_com_container_instance_count)",
+          "legendFormat": "{{service_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pub/Sub Message Rate (published)",
+      "description": "Messages published per second. Each message costs $0.04/million.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (topic_id) (rate(stackdriver_pubsub_topic_pubsub_googleapis_com_topic_send_message_operation_count[5m]))",
+          "legendFormat": "{{topic_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "msg/s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pub/Sub Undelivered Messages",
+      "description": "Backlog size per subscription. Large backlogs indicate pipeline can't keep up — cost grows if autoscaling kicks in.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum by (subscription_id) (stackdriver_pubsub_subscription_pubsub_googleapis_com_subscription_num_undelivered_messages)",
+          "legendFormat": "{{subscription_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Bigtable Read Operations / sec",
+      "description": "Read operations per second against the online store. Cost: $0.26/million reads.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum(rate(dataflow_job_user_counter{metric_name=\"FetchFeaturesFromOnlineStore-fetch_success\"}[5m]))",
+          "legendFormat": "feature reads/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Bigtable Write Operations / sec",
+      "description": "Write operations per second to the online store. Cost: $0.26/million writes.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum(rate(dataflow_job_user_counter{metric_name=\"WriteToOnlineStore-rows_written\"}[5m]))",
+          "legendFormat": "feature writes/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Predictions / sec (throughput proxy)",
+      "description": "Prediction throughput — the denominator for cost-per-prediction. Higher throughput amortizes fixed costs.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum(rate(fastapi_fastapi_predictions_total[5m]))",
+          "legendFormat": "predictions/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cost Reference",
+      "description": "GCP pricing reference for cost estimation.",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "options": {
+        "mode": "markdown",
+        "content": "### GCP Cost Drivers\n| Resource | Unit Cost | Metric to Watch |\n|---|---|---|\n| Dataflow vCPU | ~$0.069/hr | `current_num_vcpus` |\n| Dataflow RAM (GB) | ~$0.003/hr | `current_memory_usage` |\n| Cloud Run | ~$0.000024/instance-sec (1 vCPU) | `instance_count` |\n| Pub/Sub | $0.04/million messages | `send_message_operation_count` |\n| Bigtable reads | $0.26/million | `fetch_success` counter |\n| Bigtable writes | $0.26/million | `rows_written` counter |\n| BQ streaming inserts | $0.01/200 MB | BQ built-in metrics |\n\n### Estimation\n```\nDaily Dataflow cost ≈ avg_vcpus × $0.069 × 24\nDaily prediction cost ≈ daily_dataflow + daily_cloud_run + daily_pubsub + daily_bigtable\nCost per prediction ≈ daily_cost / daily_predictions\n```"
+      }
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["ml", "cost", "attribution"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "Cost Attribution",
+  "uid": "cost-attribution"
+}

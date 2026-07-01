@@ -63,3 +63,24 @@ groups:
           severity: critical
         annotations:
           summary: "Prediction batch failures spiking — check FastAPI service health"
+
+  - name: cost-attribution
+    rules:
+      - alert: DataflowWorkerCountSpike
+        expr: >
+          sum(stackdriver_dataflow_job_dataflow_googleapis_com_job_current_num_vcpus)
+          > 2 * avg_over_time(sum(stackdriver_dataflow_job_dataflow_googleapis_com_job_current_num_vcpus)[7d:1h])
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dataflow vCPU count exceeds 2x the 7-day average — check for autoscaling runaway"
+
+      - alert: HighPubSubBacklog
+        expr: >
+          sum(stackdriver_pubsub_subscription_pubsub_googleapis_com_subscription_num_undelivered_messages) > 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pub/Sub undelivered messages > 10k — pipeline may be falling behind, driving up costs"
