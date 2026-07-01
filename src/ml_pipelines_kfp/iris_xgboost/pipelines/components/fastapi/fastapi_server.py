@@ -13,8 +13,9 @@ from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
 
 from models.instance import Instance
 from models.prediction import Prediction
@@ -23,12 +24,19 @@ from log import get_logger
 logger = get_logger(__name__)
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
-# --- OTel metrics setup ---
-otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
+# --- OTel metrics setup (environment-aware exporter) ---
 resource = Resource.create({"service.name": "fastapi-inference"})
+otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+if otel_endpoint:
+    exporter = OTLPMetricExporter(endpoint=otel_endpoint, insecure=True)
+    logger.info(f"Using OTLP exporter → {otel_endpoint}")
+else:
+    exporter = CloudMonitoringMetricsExporter()
+    logger.info("Using Cloud Monitoring exporter")
 
 metric_reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint=otel_endpoint, insecure=True),
+    exporter,
     export_interval_millis=10_000,
 )
 metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))

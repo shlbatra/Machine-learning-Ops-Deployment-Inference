@@ -81,11 +81,11 @@ scripts/
 └── clean_reinstall.sh                  # Clean venv and reinstall
 docs/                                   # Design docs and plans
 observability/                          # Prometheus + Grafana monitoring stack
-├── otel-collector.yml                 # OTel Collector: receive OTLP, export to Prometheus
-├── prometheus.yml                     # Scrape config (OTel Collector + stackdriver-exporter)
+├── otel-collector.yml                 # OTel Collector: receive OTLP, export to Prometheus (local dev only)
+├── prometheus.yml                     # Scrape config (stackdriver-exporter + OTel Collector)
 ├── alert_rules.yml                    # Alert rules (error rates, latency, cost anomalies)
 ├── alertmanager.yml                   # Notification routing (Slack, PagerDuty)
-├── docker-compose.observability.yml   # Local dev stack (all observability services)
+├── docker-compose.observability.yml   # Observability stack (stackdriver-exporter bridges Cloud Monitoring)
 └── grafana/
     ├── provisioning/                  # Auto-configure datasources and dashboard loading
     └── dashboards/
@@ -303,15 +303,51 @@ Generate random Iris data and publish to Pub/Sub for testing streaming pipelines
 
 This can be run from any directory — the script resolves paths automatically.
 
-## Observability (Local Dev)
+## Observability
 
-The observability stack runs Prometheus, Grafana, OTel Collector, Alertmanager, and a stackdriver-exporter as Docker containers. It collects metrics from the FastAPI service (via OTel) and GCP platform metrics (via stackdriver-exporter).
+The observability stack monitors production Cloud Run and Dataflow services. All metrics flow through **Google Cloud Monitoring** and are bridged into a local Prometheus/Grafana stack via `stackdriver-exporter`. No direct network path from Cloud Run to local containers is needed.
+
+### Architecture
+
+```
+┌─── Google Cloud ───────────────────────────────────────────────┐
+│                                                                │
+│  FastAPI (Cloud Run) ──CloudMonitoringMetricsExporter──┐       │
+│  Dataflow (Beam)     ──auto-exported──────────────────┤       │
+│  GCP platform        ──auto-collected────────────────┐│       │
+│                                                      ││       │
+│                                              Cloud Monitoring  │
+│                                              (workload/,       │
+│                                               custom/dataflow, │
+│                                               dataflow/, run/, │
+│                                               pubsub/, etc.)   │
+└──────────────────────────────────────────────────┬─────────────┘
+                                                   │
+┌─── Local Docker Compose ─────────────────────────┼─────────────┐
+│                                                  ▼             │
+│                                     stackdriver-exporter       │
+│                                          :9255                 │
+│                                            │                   │
+│                                            ▼                   │
+│                    Prometheus :9090 ──▶ Grafana :3000           │
+│                         │                                      │
+│                         ▼                                      │
+│                    Alertmanager :9093                           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**FastAPI on Cloud Run** uses `CloudMonitoringMetricsExporter` by default — metrics land in Cloud Monitoring under `workload.googleapis.com/fastapi.*`. For local dev, set `OTEL_EXPORTER_OTLP_ENDPOINT` to fall back to OTLP push to a local OTel Collector (start it with `docker compose --profile local-dev up`).
 
 ### Start the Stack
 
 ```bash
 cd observability
+
+# Production monitoring (scrapes Cloud Monitoring via stackdriver-exporter)
 docker compose -f docker-compose.observability.yml up -d
+
+# Local dev (adds OTel Collector for locally-running FastAPI)
+docker compose -f docker-compose.observability.yml --profile local-dev up -d
 ```
 
 ### Access the UIs
@@ -329,29 +365,17 @@ Grafana auto-loads three dashboards on startup (no manual import needed):
 
 ### Verify It Works
 
-1. **Prometheus targets** — go to http://localhost:9090/targets and check that `otel-collector` and `stackdriver-exporter` targets are UP
+1. **Prometheus targets** — go to http://localhost:9090/targets and check that `stackdriver-exporter` is UP
 2. **Grafana datasource** — Prometheus is auto-configured as the default datasource; dashboards should show "No data" until metrics flow
-3. **FastAPI metrics** — start the FastAPI service with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` and send a `/predict` request; metrics appear in the Pipeline Health dashboard within ~15s
-4. **GCP metrics** — stackdriver-exporter requires GCP credentials; set `GCP_PROJECT_ID` env var and authenticate via `gcloud auth application-default login` or Workload Identity. Dataflow/Pub/Sub/Bigtable/Cloud Run metrics appear in the Cost Attribution dashboard
+3. **FastAPI metrics** — send a `/predict` request to the Cloud Run service; `workload_googleapis_com:fastapi_predictions_total` appears in Prometheus within ~2 minutes (Cloud Monitoring export interval + stackdriver-exporter scrape interval)
+4. **Beam metrics** — when Dataflow jobs are running, `custom_googleapis_com:dataflow_*` metrics (parse_success, prediction_latency, etc.) appear in Prometheus
+5. **GCP platform metrics** — stackdriver-exporter requires GCP credentials; set `GCP_PROJECT_ID` env var and authenticate via `gcloud auth application-default login` or Workload Identity. Dataflow/Pub/Sub/Bigtable/Cloud Run metrics appear in the Cost Attribution dashboard
 
 ### Stop the Stack
 
 ```bash
 cd observability
 docker compose -f docker-compose.observability.yml down
-```
-
-### Architecture
-
-```
-FastAPI (OTel SDK) ──OTLP gRPC──▶ OTel Collector ──scrape──▶ Prometheus ──▶ Grafana
-                                   (port 4317)      (port 8889)  (port 9090)  (port 3000)
-
-GCP Cloud Monitoring ◀──scrape── stackdriver-exporter ──scrape──▶ Prometheus
-(Dataflow, Pub/Sub,               (port 9255)
- Bigtable, Cloud Run)
-                                                        Prometheus ──▶ Alertmanager
-                                                                       (port 9093)
 ```
 
 ### Alert Rules
@@ -503,7 +527,7 @@ The repository includes three GitHub Actions workflows:
 - **Data Validation**: Pydantic
 - **Data Processing**: Pandas, Polars, Dask
 - **Async HTTP**: aiohttp (micro-batch inference)
-- **Observability**: OpenTelemetry (instrumentation), Prometheus (metrics), Grafana (dashboards), Alertmanager (alerts), stackdriver-exporter (GCP metrics bridge)
+- **Observability**: OpenTelemetry (instrumentation), Cloud Monitoring (production metrics sink), Prometheus (metrics), Grafana (dashboards), Alertmanager (alerts), stackdriver-exporter (Cloud Monitoring → Prometheus bridge)
 - **Authentication**: Workload Identity, `google.auth.default()`
 - **Package Management**: uv, Hatchling
 - **CI/CD**: GitHub Actions (3 workflows: CI build + DAG sync, Dataflow inference deploy, Dataflow feature deploy)
@@ -575,7 +599,7 @@ Feature definitions live in `src/feature_store/` with a shared `FeatureConfig` c
 - **Scalable**: Dataflow auto-scales based on Pub/Sub message volume with Streaming Engine
 - **Reliable**: Blessed-model deployments, retry with backoff on online store reads, Pydantic message validation
 - **Consistent Features**: Single Feature Store serves training (offline/BQ), batch (offline/BQ), and real-time (online/Bigtable)
-- **Observable**: Prometheus + Grafana dashboards (pipeline health, dead letters, cost attribution), OTel instrumentation, Alertmanager alerts, structured JSON logging via Cloud Logging
+- **Observable**: All production metrics (FastAPI, Dataflow, GCP platform) flow through Cloud Monitoring → stackdriver-exporter → Prometheus → Grafana. OTel instrumentation, Alertmanager alerts, structured JSON logging via Cloud Logging
 
 ## Logging
 

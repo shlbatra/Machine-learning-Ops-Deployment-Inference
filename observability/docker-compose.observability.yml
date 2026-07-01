@@ -1,4 +1,7 @@
 services:
+  # Only needed for local dev (FastAPI running locally).
+  # Production monitoring uses stackdriver-exporter instead.
+  # Start with: docker compose --profile local-dev up
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     ports:
@@ -6,6 +9,7 @@ services:
       - "8889:8889"
     volumes:
       - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml
+    profiles: ["local-dev"]
 
   prometheus:
     image: prom/prometheus:latest
@@ -36,6 +40,6 @@ services:
     image: prometheuscommunity/stackdriver-exporter:latest
     environment:
       - STACKDRIVER_EXPORTER_GOOGLE_PROJECT_ID=${GCP_PROJECT_ID:-deeplearning-sahil}
-      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com,bigquery.googleapis.com/storage
+      - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,custom.googleapis.com/dataflow,workload.googleapis.com,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com,bigquery.googleapis.com/storage
     ports:
       - "9255:9255"

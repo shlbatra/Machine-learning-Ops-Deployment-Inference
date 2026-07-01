@@ -29,7 +29,10 @@ USER appuser
 ENV MODEL_PATH=/app/models/model.joblib
 ENV PORT=8080
 ENV PYTHONPATH=/app
-ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+# When OTEL_EXPORTER_OTLP_ENDPOINT is unset, FastAPI uses CloudMonitoringMetricsExporter
+# (production path: metrics → Cloud Monitoring → stackdriver-exporter → Prometheus).
+# Set this env var only for local dev (e.g. docker-compose with OTel Collector).
+# ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
 EXPOSE 8080
 
