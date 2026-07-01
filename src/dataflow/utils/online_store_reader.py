@@ -30,6 +30,11 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
         self.feature_columns = set(feature_columns)
         self.max_retries = max_retries
         self.initial_backoff_secs = initial_backoff_secs
+        self.fetch_latency = beam.metrics.Metrics.distribution("FetchFeaturesFromOnlineStore", "fetch_latency_ms")
+        self.fetch_success = beam.metrics.Metrics.counter("FetchFeaturesFromOnlineStore", "fetch_success")
+        self.fetch_failure = beam.metrics.Metrics.counter("FetchFeaturesFromOnlineStore", "fetch_failure")
+        self.fetch_retry = beam.metrics.Metrics.counter("FetchFeaturesFromOnlineStore", "fetch_retry")
+        self.fetch_missing = beam.metrics.Metrics.counter("FetchFeaturesFromOnlineStore", "fetch_missing_features")
 
     def setup(self):
         self._client = FeatureOnlineStoreServiceClient(
@@ -49,6 +54,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
 
     def _fetch_one(self, element):
         entity_id = element["entity_id"]
+        start = time.monotonic()
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._client.fetch_feature_values(
@@ -64,10 +70,14 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                         features[pair.name] = pair.value.double_value
 
                 if len(features) == len(self.feature_columns):
+                    elapsed_ms = int((time.monotonic() - start) * 1000)
+                    self.fetch_latency.update(elapsed_ms)
+                    self.fetch_success.inc()
                     element.update(features)
                     return element
 
                 if attempt < self.max_retries:
+                    self.fetch_retry.inc()
                     backoff = self.initial_backoff_secs * (2 ** attempt)
                     logger.info(
                         f"Missing features for entity_id={entity_id}, "
@@ -75,6 +85,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                     )
                     time.sleep(backoff)
                 else:
+                    self.fetch_missing.inc()
                     missing = self.feature_columns - set(features.keys())
                     logger.warning(
                         f"Missing features for entity_id={entity_id} "
@@ -84,6 +95,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
 
             except Exception as e:
                 if attempt < self.max_retries:
+                    self.fetch_retry.inc()
                     backoff = self.initial_backoff_secs * (2 ** attempt)
                     logger.warning(
                         f"Feature fetch failed for entity_id={entity_id}, "
@@ -91,6 +103,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                     )
                     time.sleep(backoff)
                 else:
+                    self.fetch_failure.inc()
                     logger.error(
                         f"Feature fetch failed for entity_id={entity_id} "
                         f"after {self.max_retries} retries: {e}"

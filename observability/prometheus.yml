@@ -15,3 +15,8 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8889"]
     scrape_interval: 10s
+
+  - job_name: "stackdriver-exporter"
+    static_configs:
+      - targets: ["stackdriver-exporter:9255"]
+    scrape_interval: 60s

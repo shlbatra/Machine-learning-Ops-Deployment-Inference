@@ -52,22 +52,34 @@ FEATURE_TABLE_SCHEMA = {
 class ParsePubSubMessage(beam.DoFn):
     """Parse and validate JSON message from Pub/Sub using Pydantic schema."""
 
+    def __init__(self):
+        self.parse_success = beam.metrics.Metrics.counter("ParsePubSubMessage", "parse_success")
+        self.parse_error = beam.metrics.Metrics.counter("ParsePubSubMessage", "parse_error")
+        self.validation_error = beam.metrics.Metrics.counter("ParsePubSubMessage", "validation_error")
+
     def process(self, element):
         try:
             message_data = json.loads(element.decode("utf-8"))
             validated = PubSubIrisMessage(**message_data)
+            self.parse_success.inc()
             yield validated.model_dump()
 
         except ValidationError as e:
+            self.validation_error.inc()
             logger.warning(f"Invalid message: {e}")
         except (json.JSONDecodeError, AttributeError) as e:
+            self.parse_error.inc()
             logger.error(f"Error parsing message: {e}, message: {element}")
 
 
 class MapToFeatureRow(beam.DoFn):
     """Rename validated Pub/Sub fields to canonical names and add Feature Store metadata."""
 
+    def __init__(self):
+        self.rows_mapped = beam.metrics.Metrics.counter("MapToFeatureRow", "rows_mapped")
+
     def process(self, element):
+        self.rows_mapped.inc()
         row = {
             canonical: element[pubsub_key]
             for pubsub_key, canonical in PUBSUB_TO_CANONICAL.items()
