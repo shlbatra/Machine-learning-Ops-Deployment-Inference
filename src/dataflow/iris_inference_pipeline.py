@@ -22,6 +22,7 @@ from apache_beam.transforms.util import BatchElements
 from apache_beam.io import ReadFromPubSub, WriteToBigQuery
 from apache_beam.io.gcp.bigquery import BigQueryWriteFn, RetryStrategy
 from dataflow.utils.online_store_reader import FetchFeaturesFromOnlineStore
+from dataflow.utils.dead_letter import DEAD_LETTER_TAG, build_dead_letter, write_dead_letters
 from ml_pipelines_kfp.log import get_logger
 
 logger = get_logger(__name__)
@@ -79,6 +80,11 @@ class ParsePubSubMessage(beam.DoFn):
                 else:
                     self.missing_id.inc()
                     logger.warning(f"Message missing entity_id and sample_id: {message_data}")
+                    yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                        pipeline="inference", stage="parse", error_type="missing_field",
+                        error_message="Message missing entity_id and sample_id",
+                        original_message=element,
+                    ))
                     return
 
             self.parse_success.inc()
@@ -90,6 +96,10 @@ class ParsePubSubMessage(beam.DoFn):
         except (json.JSONDecodeError, AttributeError) as e:
             self.parse_error.inc()
             logger.error(f"Error parsing message: {e}, message: {element}")
+            yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                pipeline="inference", stage="parse", error_type="json_decode",
+                error_message=e, original_message=element,
+            ))
 
 
 class BatchCallFastAPIService(beam.DoFn):
@@ -125,8 +135,10 @@ class BatchCallFastAPIService(beam.DoFn):
         self._loop.close()
 
     def process(self, batch):
-        results = self._loop.run_until_complete(self._call_async(batch))
+        results, dead_letters = self._loop.run_until_complete(self._call_async(batch))
         yield from results
+        for dl in dead_letters:
+            yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, dl)
 
     async def _call_async(self, batch):
         start_time = time.time()
@@ -138,6 +150,7 @@ class BatchCallFastAPIService(beam.DoFn):
         ]
 
         last_error = None
+        retry_count = 0
         for attempt in range(self.MAX_RETRIES):
             try:
                 async with self._session.post(
@@ -169,10 +182,11 @@ class BatchCallFastAPIService(beam.DoFn):
                     }
                     logger.info(f"Row processed - {row}")
                     results.append(row)
-                return results
+                return results, []
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last_error = e
+                retry_count += 1
                 self.prediction_retry.inc()
                 wait = self.RETRY_BACKOFF_BASE ** attempt
                 logger.warning(
@@ -186,20 +200,16 @@ class BatchCallFastAPIService(beam.DoFn):
 
         self.prediction_error.inc(len(batch))
         logging.error(f"Batch prediction failed after retries ({len(batch)} instances): {last_error}")
-        processing_time = time.time() - start_time
-        return [
-            {
-                "entity_id": el["entity_id"],
-                "features": None,
-                "timestamp": el.get("timestamp", datetime.now(timezone.utc).isoformat()),
-                "prediction": "ERROR",
-                "class_probabilities": [],
-                "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
-                "model_service": f"ERROR: {str(last_error)}",
-                "processing_time": processing_time,
-            }
+        error_type = "timeout" if isinstance(last_error, asyncio.TimeoutError) else "connection"
+        dead_letters = [
+            build_dead_letter(
+                pipeline="inference", stage="predict", error_type=error_type,
+                error_message=last_error, entity_id=el["entity_id"],
+                retry_count=retry_count,
+            )
             for el in batch
         ]
+        return [], dead_letters
 
 
 class AddProcessingMetadata(beam.DoFn):
@@ -256,6 +266,11 @@ def run_pipeline(argv=None):
         help="Feature View ID (default: iris_features)",
     )
     parser.add_argument(
+        "--dead_letter_table",
+        default=None,
+        help="BigQuery dead letter table (PROJECT:DATASET.TABLE). If unset, dead letters are logged only.",
+    )
+    parser.add_argument(
         "--no_wait", action="store_true",
         help="Submit the job and exit without waiting for it to finish",
     )
@@ -272,10 +287,16 @@ def run_pipeline(argv=None):
 
     pipeline = beam.Pipeline(options=pipeline_options)
 
-    predictions = (
+    parse_results = (
         pipeline
         | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
-        | "Parse JSON" >> beam.ParDo(ParsePubSubMessage())
+        | "Parse JSON" >> beam.ParDo(ParsePubSubMessage()).with_outputs(
+            DEAD_LETTER_TAG, main="parsed",
+        )
+    )
+
+    fetch_results = (
+        parse_results.parsed
         | "Batch Elements" >> BatchElements(
             min_batch_size=1,
             max_batch_size=known_args.batch_size,
@@ -289,14 +310,24 @@ def run_pipeline(argv=None):
                 feature_view_id=known_args.feature_view_id,
                 feature_columns=FEATURE_COLUMNS,
             )
-        )
+        ).with_outputs(DEAD_LETTER_TAG, main="fetched")
+    )
+
+    predict_results = (
+        fetch_results.fetched
         | "Batch for Prediction" >> BatchElements(
             min_batch_size=1,
             max_batch_size=known_args.batch_size,
             max_batch_duration_secs=known_args.max_batch_duration_secs,
         )
         | "Call FastAPI Batch"
-        >> beam.ParDo(BatchCallFastAPIService(known_args.service_url))
+        >> beam.ParDo(BatchCallFastAPIService(known_args.service_url)).with_outputs(
+            DEAD_LETTER_TAG, main="predictions",
+        )
+    )
+
+    predictions = (
+        predict_results.predictions
         | "Add Metadata" >> beam.ParDo(AddProcessingMetadata())
         | "Write to BigQuery"
         >> WriteToBigQuery(
@@ -315,6 +346,20 @@ def run_pipeline(argv=None):
         predictions[BigQueryWriteFn.FAILED_ROWS_WITH_ERRORS]
         | "Raise on BQ Error" >> beam.ParDo(RaiseOnBigQueryError())
     )
+
+    if known_args.dead_letter_table:
+        all_dead_letters = (
+            (
+                parse_results[DEAD_LETTER_TAG],
+                fetch_results[DEAD_LETTER_TAG],
+                predict_results[DEAD_LETTER_TAG],
+            )
+            | "Flatten Dead Letters" >> beam.Flatten()
+        )
+        write_dead_letters(
+            all_dead_letters,
+            table=known_args.dead_letter_table,
+        )
 
     result = pipeline.run()
     if not known_args.no_wait:
