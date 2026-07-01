@@ -711,16 +711,16 @@ scrape_configs:
 4. ~~Add Alertmanager rules for error rate thresholds~~ — see `observability/alert_rules.yml`
 5. ~~Build Dead Letters panel in Grafana~~ — see `observability/grafana/dashboards/dead-letters.json`
 
-### Phase 4: Tracing + Investigation
+### Phase 4: Tracing + Investigation -- DONE
 Feature values are already stored as JSON in the `features` column — this phase adds the missing tracing and diagnostic metadata.
 
-1. Switch to `ReadFromPubSub(with_attributes=True)` to capture `message_id` as `trace_id`
-2. Propagate `trace_id` through all pipeline stages (element dict → BQ row)
-3. Instrument `online_store_reader._fetch_one()` to capture `feature_fetch_latency_ms` and `feature_fetch_retry_count` per entity
-4. Capture `prediction_retry_count` in `BatchCallFastAPIService._call_async()` (the `attempt` value on success)
-5. Extend `PREDICTION_SCHEMA` with the 4 new fields and update BQ table DDL
-6. Build Investigation dashboard (entity lookup, feature correlation, slow-prediction diagnosis)
-7. Create BQ views for common investigation queries
+1. ~~Switch to `ReadFromPubSub(with_attributes=True)` to capture `message_id` as `trace_id`~~ — see `iris_inference_pipeline.py` `ParsePubSubMessage`
+2. ~~Propagate `trace_id` through all pipeline stages (element dict → BQ row)~~ — flows from parse → fetch → predict → BQ row
+3. ~~Instrument `online_store_reader._fetch_one()` to capture `feature_fetch_latency_ms` and `feature_fetch_retry_count` per entity~~ — see `online_store_reader.py`
+4. ~~Capture `prediction_retry_count` in `BatchCallFastAPIService._call_async()` (the `attempt` value on success)~~ — see `iris_inference_pipeline.py`
+5. ~~Extend `PREDICTION_SCHEMA` with the 4 new fields and update BQ table DDL~~ — `trace_id`, `feature_fetch_latency_ms`, `feature_fetch_retry_count`, `prediction_retry_count`
+6. ~~Build Investigation dashboard (entity lookup, feature correlation, slow-prediction diagnosis)~~ — see `observability/grafana/dashboards/investigation.json`
+7. Create BQ views for common investigation queries (deferred — queries documented in dashboard text panel)
 
 ### Phase 5: Cost Attribution
 1. Deploy stackdriver-exporter with Dataflow/Bigtable/BQ/Pub/Sub metric prefixes
