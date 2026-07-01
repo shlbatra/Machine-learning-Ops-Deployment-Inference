@@ -1,4 +1,16 @@
 services:
+  fastapi:
+    build:
+      context: ..
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - MODEL_PATH=/app/model_artifacts/model.joblib
+    depends_on:
+      - otel-collector
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     ports:
@@ -14,6 +26,8 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - ./alert_rules.yml:/etc/prometheus/alert_rules.yml
+    depends_on:
+      - otel-collector
 
   grafana:
     image: grafana/grafana:latest
@@ -24,6 +38,8 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
 
   alertmanager:
     image: prom/alertmanager:latest
