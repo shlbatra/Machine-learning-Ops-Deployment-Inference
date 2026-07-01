@@ -27,6 +27,7 @@ USER appuser
 ENV MODEL_PATH=/app/model_artifacts/model.joblib
 ENV PORT=8080
 ENV PYTHONPATH=/app
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
 EXPOSE 8080
 

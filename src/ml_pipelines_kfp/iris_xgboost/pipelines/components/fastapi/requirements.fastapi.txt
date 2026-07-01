@@ -7,3 +7,9 @@ numpy>=1.24.0
 pydantic>=2.0.0
 google-cloud-storage>=2.10.0
 requests>=2.31.0
+
+# OpenTelemetry instrumentation (Phase 1: FastAPI metrics)
+opentelemetry-api>=1.25.0
+opentelemetry-sdk>=1.25.0
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-exporter-otlp-proto-grpc>=1.25.0
