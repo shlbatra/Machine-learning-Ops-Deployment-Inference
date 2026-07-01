@@ -31,3 +31,35 @@ groups:
           severity: warning
         annotations:
           summary: "p95 prediction latency exceeds 1 second"
+
+  - name: dataflow-pipeline-errors
+    rules:
+      - alert: FeatureFetchFailureSpike
+        expr: >
+          sum(rate(dataflow_job_user_counter{metric_name=~"FetchFeaturesFromOnlineStore-fetch_failure|FetchFeaturesFromOnlineStore-fetch_missing_features"}[5m])) > 10
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature fetch failures spiking — check Bigtable / online store"
+
+      - alert: HighParseErrorRate
+        expr: >
+          sum(rate(dataflow_job_user_counter{metric_name="ParsePubSubMessage-parse_error"}[5m]))
+          /
+          (sum(rate(dataflow_job_user_counter{metric_name="ParsePubSubMessage-parse_success"}[5m])) + 1)
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pub/Sub message parse error rate > 10%"
+
+      - alert: PredictionBatchFailureSpike
+        expr: >
+          sum(rate(dataflow_job_user_counter{metric_name="BatchCallFastAPIService-prediction_error"}[5m])) > 5
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prediction batch failures spiking — check FastAPI service health"

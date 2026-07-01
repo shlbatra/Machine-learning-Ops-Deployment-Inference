@@ -8,6 +8,8 @@ from google.cloud.aiplatform_v1.types import (
     FeatureViewDataKey,
 )
 
+from dataflow.utils.dead_letter import DEAD_LETTER_TAG, build_dead_letter
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,11 +52,15 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
         for element in batch:
             result = self._fetch_one(element)
             if result is not None:
-                yield result
+                if isinstance(result, beam.pvalue.TaggedOutput):
+                    yield result
+                else:
+                    yield result
 
     def _fetch_one(self, element):
         entity_id = element["entity_id"]
         start = time.monotonic()
+        retry_count = 0
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._client.fetch_feature_values(
@@ -77,6 +83,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                     return element
 
                 if attempt < self.max_retries:
+                    retry_count += 1
                     self.fetch_retry.inc()
                     backoff = self.initial_backoff_secs * (2 ** attempt)
                     logger.info(
@@ -91,10 +98,15 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                         f"Missing features for entity_id={entity_id} "
                         f"after {self.max_retries} retries: {missing}"
                     )
-                    return None
+                    return beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                        pipeline="inference", stage="fetch", error_type="missing_features",
+                        error_message=f"Missing features: {missing}",
+                        entity_id=entity_id, retry_count=retry_count,
+                    ))
 
             except Exception as e:
                 if attempt < self.max_retries:
+                    retry_count += 1
                     self.fetch_retry.inc()
                     backoff = self.initial_backoff_secs * (2 ** attempt)
                     logger.warning(
@@ -108,4 +120,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                         f"Feature fetch failed for entity_id={entity_id} "
                         f"after {self.max_retries} retries: {e}"
                     )
-                    return None
+                    return beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
+                        pipeline="inference", stage="fetch", error_type="fetch_error",
+                        error_message=e, entity_id=entity_id, retry_count=retry_count,
+                    ))
