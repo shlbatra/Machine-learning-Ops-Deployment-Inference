@@ -42,7 +42,6 @@ FEATURE_COLUMNS = [
 PREDICTION_SCHEMA = {
     "fields": [
         {"name": "entity_id", "type": "STRING", "mode": "REQUIRED"},
-        {"name": "trace_id", "type": "STRING", "mode": "NULLABLE"},
         {"name": "features", "type": "STRING", "mode": "NULLABLE"},
         {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "prediction", "type": "STRING", "mode": "REQUIRED"},
@@ -50,9 +49,6 @@ PREDICTION_SCHEMA = {
         {"name": "prediction_timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
         {"name": "model_service", "type": "STRING", "mode": "REQUIRED"},
         {"name": "processing_time", "type": "FLOAT", "mode": "NULLABLE"},
-        {"name": "feature_fetch_latency_ms", "type": "FLOAT", "mode": "NULLABLE"},
-        {"name": "feature_fetch_retry_count", "type": "INTEGER", "mode": "NULLABLE"},
-        {"name": "prediction_retry_count", "type": "INTEGER", "mode": "NULLABLE"},
         {"name": "dataflow_processing_time", "type": "TIMESTAMP", "mode": "REQUIRED"},
     ]
 }
@@ -73,8 +69,7 @@ class ParsePubSubMessage(beam.DoFn):
 
     def process(self, element):
         try:
-            message_data = json.loads(element.data.decode("utf-8"))
-            trace_id = element.message_id
+            message_data = json.loads(element.decode("utf-8"))
 
             entity_id = message_data.get("entity_id")
             if not entity_id:
@@ -88,23 +83,22 @@ class ParsePubSubMessage(beam.DoFn):
                     yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
                         pipeline="inference", stage="parse", error_type="missing_field",
                         error_message="Message missing entity_id and sample_id",
-                        original_message=element.data,
+                        original_message=element,
                     ))
                     return
 
             self.parse_success.inc()
             yield {
                 "entity_id": entity_id,
-                "trace_id": trace_id,
                 "timestamp": message_data.get("timestamp"),
             }
 
         except (json.JSONDecodeError, AttributeError) as e:
             self.parse_error.inc()
-            logger.error(f"Error parsing message: {e}")
+            logger.error(f"Error parsing message: {e}, message: {element}")
             yield beam.pvalue.TaggedOutput(DEAD_LETTER_TAG, build_dead_letter(
                 pipeline="inference", stage="parse", error_type="json_decode",
-                error_message=e, original_message=getattr(element, "data", element),
+                error_message=e, original_message=element,
             ))
 
 
@@ -178,7 +172,6 @@ class BatchCallFastAPIService(beam.DoFn):
                     features = {col: element[col] for col in FEATURE_COLUMNS}
                     row = {
                         "entity_id": element["entity_id"],
-                        "trace_id": element.get("trace_id"),
                         "features": json.dumps(features),
                         "timestamp": element.get("timestamp", datetime.now(timezone.utc).isoformat()),
                         "prediction": predicted_class,
@@ -186,9 +179,6 @@ class BatchCallFastAPIService(beam.DoFn):
                         "prediction_timestamp": datetime.now(timezone.utc).isoformat(),
                         "model_service": self.service_url,
                         "processing_time": processing_time / len(batch),
-                        "feature_fetch_latency_ms": element.get("feature_fetch_latency_ms"),
-                        "feature_fetch_retry_count": element.get("feature_fetch_retry_count"),
-                        "prediction_retry_count": retry_count,
                     }
                     logger.info(f"Row processed - {row}")
                     results.append(row)
@@ -299,7 +289,7 @@ def run_pipeline(argv=None):
 
     parse_results = (
         pipeline
-        | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic, with_attributes=True)
+        | "Read from Pub/Sub" >> ReadFromPubSub(topic=known_args.input_topic)
         | "Parse JSON" >> beam.ParDo(ParsePubSubMessage()).with_outputs(
             DEAD_LETTER_TAG, main="parsed",
         )

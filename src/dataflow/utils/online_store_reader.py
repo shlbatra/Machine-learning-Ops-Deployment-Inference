@@ -73,12 +73,10 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
                         features[pair.name] = pair.value.double_value
 
                 if len(features) == len(self.feature_columns):
-                    elapsed_ms = (time.monotonic() - start) * 1000
-                    self.fetch_latency.update(int(elapsed_ms))
+                    elapsed_ms = int((time.monotonic() - start) * 1000)
+                    self.fetch_latency.update(elapsed_ms)
                     self.fetch_success.inc()
                     element.update(features)
-                    element["feature_fetch_latency_ms"] = round(elapsed_ms, 2)
-                    element["feature_fetch_retry_count"] = retry_count
                     return element
 
                 if attempt < self.max_retries:
