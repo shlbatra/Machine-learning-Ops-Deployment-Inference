@@ -80,9 +80,21 @@ scripts/
 ├── setup_artifact_registry.sh          # Create Artifact Registry repo
 └── clean_reinstall.sh                  # Clean venv and reinstall
 docs/                                   # Design docs and plans
+observability/                          # Prometheus + Grafana monitoring stack
+├── otel-collector.yml                 # OTel Collector: receive OTLP, export to Prometheus
+├── prometheus.yml                     # Scrape config (OTel Collector + stackdriver-exporter)
+├── alert_rules.yml                    # Alert rules (error rates, latency, cost anomalies)
+├── alertmanager.yml                   # Notification routing (Slack, PagerDuty)
+├── docker-compose.observability.yml   # Local dev stack (all observability services)
+└── grafana/
+    ├── provisioning/                  # Auto-configure datasources and dashboard loading
+    └── dashboards/
+        ├── pipeline-health.json       # Predictions/sec, latency, error rates, HTTP status
+        ├── dead-letters.json          # Dead letter rates by stage, error breakdown
+        └── cost-attribution.json      # Dataflow vCPUs, Cloud Run, Pub/Sub, Bigtable ops
 test/                                   # Unit/integration tests
 Dockerfile                              # KFP component container
-Dockerfile.fastapi                      # FastAPI serving container
+Dockerfile.fastapi                      # FastAPI serving container.
 Dockerfile.beam                         # Beam SDK container for Dataflow workers
 pyproject.toml                          # Project dependencies (hatchling build)
 ```
@@ -291,6 +303,71 @@ Generate random Iris data and publish to Pub/Sub for testing streaming pipelines
 
 This can be run from any directory — the script resolves paths automatically.
 
+## Observability (Local Dev)
+
+The observability stack runs Prometheus, Grafana, OTel Collector, Alertmanager, and a stackdriver-exporter as Docker containers. It collects metrics from the FastAPI service (via OTel) and GCP platform metrics (via stackdriver-exporter).
+
+### Start the Stack
+
+```bash
+cd observability
+docker compose -f docker-compose.observability.yml up -d
+```
+
+### Access the UIs
+
+| Service | URL | Credentials |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| Alertmanager | http://localhost:9093 | — |
+
+Grafana auto-loads three dashboards on startup (no manual import needed):
+- **Pipeline Health** — predictions/sec, latency percentiles, error rate, batch size, HTTP status codes
+- **Dead Letters & Errors** — dead letter rates by stage, error breakdown, parse/fetch/prediction failures
+- **Cost Attribution** — Dataflow vCPUs, Cloud Run instances, Pub/Sub rates, Bigtable read/write ops
+
+### Verify It Works
+
+1. **Prometheus targets** — go to http://localhost:9090/targets and check that `otel-collector` and `stackdriver-exporter` targets are UP
+2. **Grafana datasource** — Prometheus is auto-configured as the default datasource; dashboards should show "No data" until metrics flow
+3. **FastAPI metrics** — start the FastAPI service with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` and send a `/predict` request; metrics appear in the Pipeline Health dashboard within ~15s
+4. **GCP metrics** — stackdriver-exporter requires GCP credentials; set `GCP_PROJECT_ID` env var and authenticate via `gcloud auth application-default login` or Workload Identity. Dataflow/Pub/Sub/Bigtable/Cloud Run metrics appear in the Cost Attribution dashboard
+
+### Stop the Stack
+
+```bash
+cd observability
+docker compose -f docker-compose.observability.yml down
+```
+
+### Architecture
+
+```
+FastAPI (OTel SDK) ──OTLP gRPC──▶ OTel Collector ──scrape──▶ Prometheus ──▶ Grafana
+                                   (port 4317)      (port 8889)  (port 9090)  (port 3000)
+
+GCP Cloud Monitoring ◀──scrape── stackdriver-exporter ──scrape──▶ Prometheus
+(Dataflow, Pub/Sub,               (port 9255)
+ Bigtable, Cloud Run)
+                                                        Prometheus ──▶ Alertmanager
+                                                                       (port 9093)
+```
+
+### Alert Rules
+
+Alerts are defined in `observability/alert_rules.yml` and loaded by Prometheus:
+- **HighPredictionErrorRate** — error rate > 5% for 5 minutes
+- **NoPredictionsFlowing** — zero predictions for 10 minutes
+- **HighPredictionLatency** — p95 latency > 1 second
+- **FeatureFetchFailureSpike** — feature fetch failures > 10/5min
+- **HighParseErrorRate** — parse error rate > 10%
+- **PredictionBatchFailureSpike** — batch prediction failures spiking
+- **DataflowWorkerCountSpike** — vCPU count > 2x 7-day average
+- **HighPubSubBacklog** — undelivered messages > 10k
+
+Alertmanager routing is configured in `observability/alertmanager.yml` (default receiver has no notification targets — configure Slack/PagerDuty webhooks for production).
+
 ## Development
 
 ### Code Quality
@@ -426,6 +503,7 @@ The repository includes three GitHub Actions workflows:
 - **Data Validation**: Pydantic
 - **Data Processing**: Pandas, Polars, Dask
 - **Async HTTP**: aiohttp (micro-batch inference)
+- **Observability**: OpenTelemetry (instrumentation), Prometheus (metrics), Grafana (dashboards), Alertmanager (alerts), stackdriver-exporter (GCP metrics bridge)
 - **Authentication**: Workload Identity, `google.auth.default()`
 - **Package Management**: uv, Hatchling
 - **CI/CD**: GitHub Actions (3 workflows: CI build + DAG sync, Dataflow inference deploy, Dataflow feature deploy)
@@ -497,7 +575,7 @@ Feature definitions live in `src/feature_store/` with a shared `FeatureConfig` c
 - **Scalable**: Dataflow auto-scales based on Pub/Sub message volume with Streaming Engine
 - **Reliable**: Blessed-model deployments, retry with backoff on online store reads, Pydantic message validation
 - **Consistent Features**: Single Feature Store serves training (offline/BQ), batch (offline/BQ), and real-time (online/Bigtable)
-- **Observable**: All predictions logged to BigQuery with metadata; structured JSON logging via Cloud Logging
+- **Observable**: Prometheus + Grafana dashboards (pipeline health, dead letters, cost attribution), OTel instrumentation, Alertmanager alerts, structured JSON logging via Cloud Logging
 
 ## Logging
 
