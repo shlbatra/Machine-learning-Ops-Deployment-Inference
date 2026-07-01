@@ -35,10 +35,7 @@ services:
   stackdriver-exporter:
     image: prometheuscommunity/stackdriver-exporter:latest
     environment:
-      - GOOGLE_APPLICATION_CREDENTIALS=/credentials/sa.json
       - STACKDRIVER_EXPORTER_GOOGLE_PROJECT_ID=${GCP_PROJECT_ID:-deeplearning-sahil}
       - STACKDRIVER_EXPORTER_MONITORING_METRICS_TYPE_PREFIXES=dataflow.googleapis.com/job,bigtable.googleapis.com/server,pubsub.googleapis.com,run.googleapis.com
     ports:
       - "9255:9255"
-    volumes:
-      - ../deeplearning-sahil-e50332de6687.json:/credentials/sa.json:ro
