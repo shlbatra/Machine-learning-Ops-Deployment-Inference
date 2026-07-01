@@ -52,10 +52,7 @@ class FetchFeaturesFromOnlineStore(beam.DoFn):
         for element in batch:
             result = self._fetch_one(element)
             if result is not None:
-                if isinstance(result, beam.pvalue.TaggedOutput):
-                    yield result
-                else:
-                    yield result
+                yield result
 
     def _fetch_one(self, element):
         entity_id = element["entity_id"]
