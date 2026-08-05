@@ -25,7 +25,15 @@ def coalesce(*args):
     return next((a for a in args if a is not None), None)
 
 
-@kfp.dsl.pipeline(name=f"{PIPELINE_NAME}-training", pipeline_root=PIPELINE_ROOT)
+# GPU resource config for the model-training steps. Module-level so the pipeline
+# body reads them when the graph is built. NOTE: KFP's @dsl.pipeline decorator builds
+# the graph eagerly at decoration time, so these are reassigned from CLI args in the
+# __main__ block *before* the decorator is applied (see the programmatic decoration
+# there). ACCELERATOR_TYPE == "" means CPU-only (no GPU attached).
+ACCELERATOR_TYPE = ""
+ACCELERATOR_COUNT = 0
+
+
 def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: str):
 
     # Import components
@@ -63,6 +71,14 @@ def pipeline(project_id: str, location: str, bq_dataset: str, bq_feature_table: 
     rf_op = random_forest(
         train_dataset=data_op.outputs["train_dataset"]
     ).set_display_name("Random Forest")
+
+    # Attach a GPU to the training steps when configured. Plain-Python conditional
+    # (not a KFP dsl.If) — ACCELERATOR_TYPE is a concrete value at graph-build time.
+    # Vertex AI auto-selects a compatible (n1-*) machine for the accelerator.
+    if ACCELERATOR_TYPE:
+        for op in (dt_op, rf_op):
+            op.set_accelerator_type(ACCELERATOR_TYPE)
+            op.set_accelerator_limit(ACCELERATOR_COUNT)
 
     choose_model_op = (
         choose_best_model(
@@ -111,6 +127,12 @@ if __name__ == "__main__":
     parser.add_argument("--bq-table")
     parser.add_argument("--bq-feature-table")
     parser.add_argument("--service-account")
+    parser.add_argument("--accelerator-type", default="",
+                        help="GPU type to attach to training steps "
+                             "(e.g., NVIDIA_TESLA_T4, NVIDIA_TESLA_V100). "
+                             "Blank = CPU-only. Vertex auto-selects a compatible machine.")
+    parser.add_argument("--accelerator-count", default="0",
+                        help="Number of GPUs per step (one of 0, 1, 2, 4, 8, 16)")
     cli = parser.parse_args()
 
     # Resolve each param: CLI > env var > constants.py
@@ -126,14 +148,29 @@ if __name__ == "__main__":
     project_id = coalesce(cli.project_id, os.getenv("PROJECT_ID"), PROJECT_ID)
     region = coalesce(cli.region, os.getenv("REGION"), REGION)
     sa_email = coalesce(cli.service_account, os.getenv("SERVICE_ACCOUNT"), SERVICE_ACCOUNT)
+
+    # Resolve GPU config into the module-level globals read by pipeline() at build time.
+    ACCELERATOR_TYPE = coalesce(cli.accelerator_type, "")
+    ACCELERATOR_COUNT = int(coalesce(cli.accelerator_count, "0"))
+    if ACCELERATOR_TYPE and ACCELERATOR_COUNT not in (1, 2, 4, 8, 16):
+        parser.error("--accelerator-count must be one of 1, 2, 4, 8, 16 when a GPU is set")
+
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
     aip.init(project=project_id, location=region, credentials=credentials)
 
+    # Apply the KFP pipeline decorator here (not at module top) so the graph is built
+    # AFTER the CLI args above have been resolved into module globals. KFP builds the
+    # graph eagerly at decoration time, so decorating at import would freeze it with the
+    # default (CPU) config and ignore --accelerator-type/--model-name/--image-name.
+    pipeline_func = kfp.dsl.pipeline(
+        name=f"{PIPELINE_NAME}-training", pipeline_root=pipeline_root
+    )(pipeline)
+
     kfp.compiler.Compiler().compile(
-        pipeline_func=pipeline,
+        pipeline_func=pipeline_func,
         package_path="pipeline.yaml",
         pipeline_name=pipeline_name,
     )

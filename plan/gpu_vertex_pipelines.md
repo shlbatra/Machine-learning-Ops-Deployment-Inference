@@ -1,5 +1,21 @@
 # Plan: GPU Support for Vertex AI Pipelines (Training & Inference)
 
+> **Implementation notes (2026-08-04, Option A shipped).** Two deviations from the
+> original plan were required for KFP 2.13 / GCPC 2.20:
+>
+> 1. **API.** `PipelineTask` in KFP 2.13 has no `set_machine_type()` or
+>    `set_accelerator_count()`. The real methods are `set_accelerator_type()` +
+>    `set_accelerator_limit(n)` (n ∈ {0,1,2,4,8,16}). There is **no** way to pin an
+>    exact machine-type string on a lightweight component — Vertex auto-selects a
+>    compatible `n1-*` machine for the accelerator. So `--machine-type` / the
+>    `machine_type` DAG param were **dropped**; only `--accelerator-type` /
+>    `--accelerator-count` remain. (Exact machine-type control, incl. `g2`/`NVIDIA_L4`,
+>    is the Option B upgrade path via `create_custom_training_job_from_component`.)
+> 2. **Compile timing.** `@kfp.dsl.pipeline` builds the graph **eagerly at decoration
+>    (import) time**, so reassigning module constants in `__main__` before `.compile()`
+>    has no effect. The decorator is therefore applied **programmatically inside
+>    `__main__`** (after CLI args are parsed) so the GPU config is baked into the graph.
+
 ## Context
 
 The current KFP pipeline components (`models.py`, `inference.py`, `evaluation.py`) run on Vertex AI's default CPU-only `e2-standard-4` machine type. This plan adds the ability to run specific pipeline steps on GPU-accelerated machines, configured at the KFP component level so Vertex AI provisions the right hardware automatically.
