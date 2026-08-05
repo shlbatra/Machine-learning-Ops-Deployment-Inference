@@ -33,6 +33,11 @@ with DAG(
         "bq_feature_table": Param("iris_features", type="string"),
         "bq_table_predictions": Param("iris_predictions_staging", type="string",
                                       description="BQ table for predictions"),
+        "accelerator_type": Param("", type="string",
+                                  description="GPU type to attach to the inference step, "
+                                              "e.g. NVIDIA_TESLA_T4 (blank for CPU-only)"),
+        "accelerator_count": Param("0", type="string",
+                                   description="Number of GPUs (0, 1, 2, 4, 8, 16)"),
     },
 ) as dag:
 
@@ -48,6 +53,8 @@ with DAG(
             "--bq-dataset", "{{ params.bq_dataset }}",
             "--bq-feature-table", "{{ params.bq_feature_table }}",
             "--bq-table-predictions", "{{ params.bq_table_predictions }}",
+            "--accelerator-type", "{{ params.accelerator_type }}",
+            "--accelerator-count", "{{ params.accelerator_count }}",
         ],
         startup_timeout_seconds=300,
         container_resources=k8s.V1ResourceRequirements(

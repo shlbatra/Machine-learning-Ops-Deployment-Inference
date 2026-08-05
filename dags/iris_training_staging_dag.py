@@ -35,6 +35,11 @@ with DAG(
         "bq_table": Param("iris", type="string"),
         "bq_feature_table": Param("iris_features", type="string"),
         "service_account": Param(SERVICE_ACCOUNT, type="string"),
+        "accelerator_type": Param("", type="string",
+                                  description="GPU type to attach to training steps, "
+                                              "e.g. NVIDIA_TESLA_T4 (blank for CPU-only)"),
+        "accelerator_count": Param("0", type="string",
+                                   description="Number of GPUs (0, 1, 2, 4, 8, 16)"),
     },
 ) as dag:
 
@@ -56,6 +61,8 @@ with DAG(
             "--bq-table", "{{ params.bq_table }}",
             "--bq-feature-table", "{{ params.bq_feature_table }}",
             "--service-account", "{{ params.service_account }}",
+            "--accelerator-type", "{{ params.accelerator_type }}",
+            "--accelerator-count", "{{ params.accelerator_count }}",
         ],
         startup_timeout_seconds=300,
         container_resources=k8s.V1ResourceRequirements(
