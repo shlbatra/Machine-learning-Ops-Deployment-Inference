@@ -16,3 +16,4 @@ memory-bank
 claude.md
 gcp-key.json
 pipeline.yaml
+.setup-logs/
