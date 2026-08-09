@@ -76,12 +76,66 @@ run() {
     fi
 }
 
+# --- Vertex AI Feature Store REST helpers ---
+# `gcloud ai feature-online-stores` is beta-only and absent from a stock gcloud
+# install, so it can't be used here: it exits 2 ("Invalid choice") and a
+# `if gcloud ... 2>/dev/null` guard silently misreads that as "doesn't exist",
+# leaving a Bigtable node billing forever. Creation already goes straight to the
+# REST API via the Python SDK (feature_store/setup.py), so deletion does too.
+FS_API="https://${FS_REGION}-aiplatform.googleapis.com/v1"
+FS_PARENT="projects/${PROJECT_ID}/locations/${FS_REGION}"
+
+fs_curl() {  # fs_curl <method> <url> -> body on stdout, HTTP status as exit-code proxy
+    curl -sS -X "$1" \
+        -H "Authorization: Bearer $(gcloud auth print-access-token --project="$PROJECT_ID")" \
+        -H "Content-Type: application/json" \
+        -w '\n%{http_code}' "$2"
+}
+
+# fs_get <url> — succeeds only on HTTP 200; prints the body.
+fs_get() {
+    local out status
+    out=$(fs_curl GET "$1") || return 1
+    status=$(printf '%s' "$out" | tail -n1)
+    [ "$status" = "200" ] || return 1
+    printf '%s' "$out" | sed '$d'
+}
+
+# fs_delete <url> <label> — DELETE, then poll the returned LRO to completion.
+fs_delete() {
+    local url="$1" label="$2" out status body op done_at
+    out=$(fs_curl DELETE "$url") || { echo "  Delete request for $label failed."; return 1; }
+    status=$(printf '%s' "$out" | tail -n1)
+    body=$(printf '%s' "$out" | sed '$d')
+    if [ "$status" != "200" ]; then
+        echo "  Delete of $label returned HTTP $status:"
+        echo "$body" | head -20
+        return 1
+    fi
+
+    op=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
+    [ -n "$op" ] || { echo "  $label: delete accepted (no operation returned)."; return 0; }
+
+    # Poll the long-running operation — store deletes take a minute or two.
+    for _ in $(seq 1 60); do
+        done_at=$(fs_get "${FS_API}/${op}" 2>/dev/null \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("done" if d.get("done") else "")' 2>/dev/null) || true
+        if [ "$done_at" = "done" ]; then
+            echo "  $label deleted."
+            return 0
+        fi
+        sleep 5
+    done
+    echo "  Timed out waiting for $label deletion — check the console."
+    return 1
+}
+
 echo "=== DESTROY POC resources in project: $PROJECT_ID ==="
 echo ""
 echo "The following will be PERMANENTLY deleted:"
 $SKIP_COMPOSER          || echo "  - Composer env      : $COMPOSER_ENV ($COMPOSER_REGION) + its GKE cluster"
 $SKIP_COMPOSER          || { $KEEP_BUCKET || echo "  - Composer DAGs bucket (leftover after env delete)"; }
-$SKIP_FEATURE_STORE     || echo "  - Feature view      : $FEATURE_VIEW_ID"
+$SKIP_FEATURE_STORE     || echo "  - Feature views     : ALL views in $ONLINE_STORE_ID (e.g. $FEATURE_VIEW_ID)"
 $SKIP_FEATURE_STORE     || echo "  - Online store      : $ONLINE_STORE_ID ($FS_REGION, Bigtable)"
 $SKIP_ARTIFACT_REGISTRY || echo "  - Artifact repo     : $AR_LOCATION/$AR_REPOSITORY (ALL images)"
 echo ""
@@ -106,24 +160,29 @@ if [ "$SKIP_FEATURE_STORE" != "true" ]; then
     echo ""
     echo "--- Feature Store ---"
 
-    if gcloud ai feature-online-stores feature-views describe "$FEATURE_VIEW_ID" \
-        --feature-online-store="$ONLINE_STORE_ID" \
-        --region="$FS_REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
-        echo "Deleting feature view '$FEATURE_VIEW_ID'..."
-        run gcloud ai feature-online-stores feature-views delete "$FEATURE_VIEW_ID" \
-            --feature-online-store="$ONLINE_STORE_ID" \
-            --region="$FS_REGION" --project="$PROJECT_ID" --quiet
-    else
-        echo "Feature view '$FEATURE_VIEW_ID' not found — skipping."
-    fi
+    STORE_URL="${FS_API}/${FS_PARENT}/featureOnlineStores/${ONLINE_STORE_ID}"
 
-    if gcloud ai feature-online-stores describe "$ONLINE_STORE_ID" \
-        --region="$FS_REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
-        echo "Deleting online store '$ONLINE_STORE_ID' (stops Bigtable node billing)..."
-        run gcloud ai feature-online-stores delete "$ONLINE_STORE_ID" \
-            --region="$FS_REGION" --project="$PROJECT_ID" --quiet
-    else
+    if ! fs_get "$STORE_URL" >/dev/null 2>&1; then
         echo "Online store '$ONLINE_STORE_ID' not found — skipping."
+    else
+        # Delete every view in the store, not just $FEATURE_VIEW_ID — any
+        # leftover view blocks the store delete with FAILED_PRECONDITION.
+        VIEWS=$(fs_get "${STORE_URL}/featureViews" 2>/dev/null \
+            | python3 -c 'import json,sys; print("\n".join(v["name"] for v in json.load(sys.stdin).get("featureViews",[])))' \
+            || true)
+
+        if [ -z "${VIEWS:-}" ]; then
+            echo "No feature views in '$ONLINE_STORE_ID'."
+        else
+            while IFS= read -r view; do
+                [ -n "$view" ] || continue
+                echo "Deleting feature view '${view##*/}'..."
+                run fs_delete "${FS_API}/${view}" "feature view '${view##*/}'"
+            done <<< "$VIEWS"
+        fi
+
+        echo "Deleting online store '$ONLINE_STORE_ID' (stops Bigtable node billing)..."
+        run fs_delete "$STORE_URL" "online store '$ONLINE_STORE_ID'"
     fi
     echo "Feature Store torn down."
 fi
